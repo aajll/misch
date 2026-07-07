@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check
+      # Catch packaging breaks (bad metadata, missing files) before a release.
+      - run: uv build
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      # cppcheck (with its bundled misra.py addon) powers the end-to-end tests;
+      # without it they skip, so it must be present for real coverage here.
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+      - name: Check cppcheck + misra addon are available
+        run: |
+          cppcheck --version
+          test -f /usr/share/cppcheck/addons/misra.py
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv sync --locked
+      # Coverage is reported for visibility, not (yet) gated on a threshold.
+      - run: uv run pytest -q --cov=misch --cov-report=term

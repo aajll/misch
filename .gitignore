@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# uv
+.uv/
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+
+# Harness artefacts (findings, generated compile DBs)
+build_analysis/
+*.misra.json
+
+# Bring-your-own rule texts must never be committed
+misra_c_2023_headlines_for_cppcheck.txt
+
+# Local work tracking, not part of the public tree
+TODO.md
+.coverage
