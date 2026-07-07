@@ -39,7 +39,12 @@ jobs:
       - name: Check cppcheck + misra addon are available
         run: |
           cppcheck --version
-          test -f /usr/share/cppcheck/addons/misra.py
+          # Addon install paths vary by distro (Debian/Ubuntu use
+          # /usr/lib/<arch>/cppcheck/addons), so probe functionally: the
+          # addon must produce a misra finding on a known violation.
+          printf 'int f(int x){if(x>0){return 1;}return 0;}\n' > /tmp/misra_probe.c
+          cppcheck --enable=style --addon=misra /tmp/misra_probe.c 2>&1 \
+            | grep -q "misra-c2012"
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
