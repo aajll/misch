@@ -145,9 +145,7 @@ def test_e2e_check_stale_flags_dead_suppression(tmp_path: Path, capsys):
     c = tmp_path / "src" / "sample.c"
     lines = c.read_text().splitlines()
     # Dead: nothing in this file violates 21.6 (no stdio use at line 1/2).
-    lines.insert(
-        0, "/* cppcheck-suppress[misra-c2012-21.6] ; @deviation dead entry */"
-    )
+    lines.insert(0, "/* cppcheck-suppress[misra-c2012-21.6] ; @deviation dead entry */")
     # Live: 15.5 fires at the early return; a suppression on the line above
     # it is within the line/line+1 window find_stale treats as live.
     early = next(i for i, ln in enumerate(lines) if "return 1u;" in ln)

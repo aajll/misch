@@ -1,6 +1,6 @@
 """misch: config-driven MISRA C:2023 analysis for arbitrary C projects."""
 
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("misch")
