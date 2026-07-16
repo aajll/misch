@@ -223,7 +223,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        report, coverage = _analyse(cfg)
+        with _err.status("Running analysis..."):
+            report, coverage = _analyse(cfg)
     except _AnalysisError as exc:
         return exc.code
 
@@ -251,7 +252,8 @@ def _cmd_baseline(args: argparse.Namespace) -> int:
         _err.print(f"[red]config error:[/] {exc}")
         return 2
     try:
-        report, _ = _analyse(cfg)
+        with _err.status("Running analysis..."):
+            report, _ = _analyse(cfg)
     except _AnalysisError as exc:
         return exc.code
 
@@ -285,7 +287,8 @@ def _cmd_deviations(args: argparse.Namespace) -> int:
     if args.check_stale:
         try:
             # An unsuppressed run reveals what each suppression actually hides.
-            report, _ = _analyse(cfg, inline_suppr=False)
+            with _err.status("Running analysis..."):
+                report, _ = _analyse(cfg, inline_suppr=False)
             record.stale = find_stale(record.deviations, report.findings)
         except _AnalysisError:
             _err.print("[yellow]note:[/] staleness check skipped (analysis failed).")

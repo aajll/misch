@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Improved
+
+- Added a live-updating status spinner and progress message (`Running analysis...`) during long-running engine executions (`misch run`, `misch baseline`, and `misch deviations --check-stale`) to provide feedback during large project analysis.
+
 ## [0.1.0] - 2026-07-07
 
 First public release.
