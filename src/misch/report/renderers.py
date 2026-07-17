@@ -1,8 +1,4 @@
-"""Pure renderers over the Finding model: rich terminal and JSON.
-
-Every renderer is a function of the model only, so the human view and the
-machine view can never disagree.
-"""
+"""Render normalised findings as terminal, JSON, and SARIF output."""
 
 from __future__ import annotations
 

@@ -1,44 +1,45 @@
 # Contributing to misch
 
-`misch` is a small, focused tool: a config-driven MISRA C:2023 harness around cppcheck. Contributions are held to that bar: dependency-light, tested, and honest about what the analysis can and cannot prove.
+Contributions should keep `misch` focused, dependency-light, tested, deterministic, and explicit about the limits of cppcheck's MISRA coverage.
 
-## Dev setup
+## Development setup
 
 ```sh
-uv sync                     # install the project + dev deps into .venv
+uv sync
 uv run misch --help
-uv run pytest -q            # unit tests (no cppcheck needed)
-uv run ruff check .         # lint
+uv run pytest
+uv run ruff check src tests
+uv build
 ```
 
-`cppcheck` (with its bundled `misra.py` addon) must be on `PATH` for the `run`/`baseline` commands and any end-to-end test.
+Unit tests do not require cppcheck. End-to-end engine coverage requires cppcheck and its bundled `misra.py` addon on `PATH`; tests that cannot find them are skipped.
 
-## Architecture in one paragraph
+## Architecture
 
-`compile_commands.json` is the universal seam; a single internal `Finding` model backs every output. The pipeline is `resolve config → obtain + normalise compile DB → scope-check → cppcheck (XML) → Finding model → classify → render`. See [`docs/DESIGN.md`](docs/DESIGN.md) for the full picture. Keep renderers pure (model in, bytes out) so the terminal, JSON, baseline, and deviation views can never disagree.
+A compilation database separates build-system concerns from analysis. cppcheck XML is parsed into a shared `Finding` model used by terminal, JSON, SARIF, and baseline reporting. Deviation auditing uses a separate model for suppressions and their justifications. See [Architecture](docs/architecture.md) for the pipeline, analysis boundary, and limitations.
 
-## Where things live
+## Repository layout
 
-- `src/misch/cli.py`: argument parsing and command handlers.
-- `config.py`: `misra.toml` loading and path/rule-texts resolution.
-- `db/`: compile-DB resolution, normalisation, and scope classification.
-- `engine/cppcheck.py`: the only place that shells out to cppcheck; parses XML into Findings.
-- `report/`: the `Finding` model, headlines parser, baseline, deviation harvester, and renderers.
-- `scaffold.py`: the `init` config template.
+- `src/misch/cli.py`: command-line parsing and command handlers.
+- `src/misch/config.py`: configuration loading, validation, and path resolution.
+- `src/misch/db/`: compilation-database resolution, normalization, and scope classification.
+- `src/misch/engine/cppcheck.py`: cppcheck invocation and XML parsing.
+- `src/misch/report/`: finding, baseline, deviation, and rendering models.
+- `src/misch/scaffold.py`: initialization planning and template loading.
+- `src/misch/templates/`: packaged files emitted by scaffolded initialization.
+- `tests/`: unit, behavior, and end-to-end tests.
 
-## Adding an engine or a DB normaliser
+## Contribution guidelines
 
-- **A new engine** implements the same contract as `engine/cppcheck.run`: take the config + compile DB, return `list[Finding]`. Nothing downstream should know which engine produced a finding.
-- **A DB normaliser** (e.g. a cross-toolchain flag translator) transforms the compile DB before analysis. Keep it optional and selected by config, so the common native case needs none.
+- **Do not add MISRA guideline text.** Rule text is bring-your-own licensed material and must not be copied, paraphrased, or committed to this repository.
+- **Support Python 3.11 and later.** Prefer the standard library; new runtime dependencies require a clear benefit.
+- **Keep output deterministic.** Preserve stable ordering and serialization, and avoid timing-dependent tests.
+- **State limitations plainly.** Do not present best-effort checks as certification or complete coverage.
+- **Test behavior changes.** Add or update tests for every feature and bug fix.
+- **Keep user documentation current.** Update the README or focused document whenever command or configuration behavior changes.
 
-## Rules of the house
-
-- **No bundled MISRA material.** The rule-texts file is bring-your-own and gitignored; never commit it or paraphrase copyrighted rule text into the tree.
-- **Python ≥ 3.11**, standard library first. New runtime dependencies need a good reason.
-- **Determinism.** Sort output by `(rule, file, line)`; keep JSON key order stable. No non-deterministic tests.
-- **Be honest about coverage.** cppcheck checks a subset of MISRA C:2023; if a feature is best-effort (e.g. staleness), say so in the docstring and the docs rather than overclaim.
-- Run `ruff check .` and `pytest` before opening a PR. Add a test for every bug fix and every feature.
+Run the full test, lint, and build commands before opening a pull request.
 
 ## Commits
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `doc:`, `test:`, `chore:`, `refactor:`). Explain _why_ in the body, not _what_ the diff already shows.
+Use [Conventional Commits](https://www.conventionalcommits.org/) such as `feat:`, `fix:`, `docs:`, `test:`, `chore:`, and `refactor:`. Commit messages should explain the reason for a change when it is not evident from the diff.

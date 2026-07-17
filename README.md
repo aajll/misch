@@ -3,138 +3,114 @@
 [![CI](https://github.com/aajll/misch/actions/workflows/ci.yml/badge.svg)](https://github.com/aajll/misch/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/misch)](https://pypi.org/project/misch/)
 [![Python](https://img.shields.io/pypi/pyversions/misch)](https://pypi.org/project/misch/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/aajll/misch/blob/master/LICENSE)
 
-**Point it at any C project and ratchet it toward MISRA C:2023.** `misch` (MISra-CHeck) is a config-driven static-analysis harness: it wraps [cppcheck](https://cppcheck.sourceforge.io/) and its `misra.py` addon, drives them off a real `compile_commands.json`, and turns per-project difference into a small `misra.toml` instead of a forked shell script.
+**Point `misch` at a C project and ratchet it toward MISRA C:2023.** It is a configuration-driven harness around [cppcheck](https://cppcheck.sourceforge.io/) and its `misra.py` addon. A compilation database describes the real build; `misra.toml` describes the analysis boundary and project policy.
 
-- **Bring-your-own rule texts:** ships no copyrighted MISRA material (see [`docs/rule-texts.md`](docs/rule-texts.md)).
-- **Baseline / ratchet:** adopt MISRA on an existing codebase without a day-one wall of findings; fail CI only on _new_ ones.
-- **Deviation records:** harvests every `cppcheck-suppress`, enforces a justification, and emits an audit-ready record.
-- **No silent scope creep:** every file is consciously analysed or excluded, or the run fails.
+- **Explicit scope:** every compilation unit is analysed or deliberately excluded.
+- **Baseline ratchet:** existing findings remain visible while CI rejects new ones.
+- **Deviation records:** suppressions require justification and can be audited for staleness.
+- **Bring-your-own rule texts:** no copyrighted MISRA material is bundled.
 
-> `misch` is a **guidance + ratchet** tool, not a compliance-certification tool: cppcheck's addon covers a subset of MISRA C:2023. The engine sits behind an interface so a certified analyser can slot in later. See [`docs/DESIGN.md`](docs/DESIGN.md).
+`misch` is an adoption and guidance tool, not a compliance-certification tool. cppcheck's addon implements only a subset of MISRA C:2023 checks.
 
 ## Install
 
-Requires Python ≥ 3.11 and `cppcheck` (with its bundled `misra.py` addon) on `PATH`. Tested with cppcheck 2.21; any recent release with the `misra.py` addon should work.
+Python 3.11 or later and cppcheck with its bundled `misra.py` addon are required. cppcheck must be available on `PATH`.
 
 ```sh
-uv tool install misch        # or: pipx install misch / pip install misch
+uv tool install misch
 ```
 
-From a checkout: `uv tool install .` (or `uv sync && uv run misch ...`).
+Alternatively, use `pipx install misch` or `pip install misch`. From a checkout, use `uv sync` and prefix commands with `uv run`.
 
 ## Quick start
 
-```sh
-cd /path/to/your/c-project
-misch init --scaffold      # config + documented analysis/ asset tree
-# Or use `misch init` when you only want the config file.
-misch run                  # analyse; categorised report; non-zero exit on findings
-misch baseline             # accept current findings as the baseline
-misch run --baseline       # from now on, fail only on NEW findings
-misch deviations           # audit every suppression + its justification
-```
-
-Bring your own rule texts (optional, for headlines + Mandatory/Required/Advisory):
+Run these commands from the root of the C project:
 
 ```sh
-export MISRA_RULE_TEXTS=/path/to/misra_c_2023_headlines_for_cppcheck.txt
+misch init --scaffold  # create misra.toml and a documented analysis/ tree
+misch run              # report findings; exit 1 when findings are present
+misch baseline         # explicitly accept the current finding counts
+misch run --baseline   # report everything; exit 1 only for new findings
+misch deviations       # validate suppressions and their justifications
 ```
 
-A run against a project with findings looks like this (headline text comes from your own rule-texts file):
+Use `misch init` without `--scaffold` when only a configuration file is wanted. Review the generated scope, exclusions, and compilation-database source before the first run.
 
-```text
-──────────────────────────────── MISRA analysis ────────────────────────────────
-scope: 1 analysed  0 excluded  files with findings: 1
+Rule headlines and Mandatory, Required, or Advisory categories are optional. Supply them from a licensed MISRA document through a cppcheck-format file:
 
-Findings by rule
-┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Rule             ┃ Category ┃ Count ┃ Headline                               ┃
-┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ misra-c2012-8.4  │ required │     2 │ Headline from your licensed MISRA copy │
-│ misra-c2012-17.7 │ required │     1 │ Headline from your licensed MISRA copy │
-│ misra-c2012-21.6 │ required │     1 │ Headline from your licensed MISRA copy │
-│ misra-c2012-15.5 │ advisory │     1 │ Headline from your licensed MISRA copy │
-│ misra-c2012-8.7  │ advisory │     1 │ Headline from your licensed MISRA copy │
-└──────────────────┴──────────┴───────┴────────────────────────────────────────┘
-
-Run with -v/--verbose for the per-location listing.
-
-6 MISRA finding(s): 4 required  2 advisory
+```sh
+export MISRA_RULE_TEXTS=/secure/path/misra-headlines.txt
 ```
+
+Analysis still runs without that file and labels categories as `unknown`. See [Rule texts](https://github.com/aajll/misch/blob/master/docs/rule-texts.md) for format and licensing guidance.
 
 ## Commands
 
-| Command            | Purpose                                                                                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `misch init`       | Generate a commented `misra.toml`; add `--scaffold` for a documented `analysis/` asset tree. Other flags (`--db`, `--scope`, `--exclude`, `--platform`, `--rule-texts`, …) pre-fill the config. |
-| `misch run`        | Analyse. Rule table + summary (add `-v` for per-location detail, or `--format json`/`--format sarif`). Exit 1 on findings; `--baseline` fails only on new ones. |
-| `misch baseline`   | Snapshot the current findings as the accepted baseline.                                                                                                         |
-| `misch deviations` | Harvest `cppcheck-suppress*`, enforce justifications, validate rule ids, emit a Markdown deviation record (`--format md`).                                      |
+| Command | Purpose |
+| --- | --- |
+| `misch init` | Generate a documented `misra.toml`; add `--scaffold` for the recommended analysis asset tree. |
+| `misch run` | Analyse and render terminal, JSON, or SARIF results. Add `--baseline` to fail only on findings above accepted counts. |
+| `misch baseline` | Analyse and store the current finding counts as the accepted baseline. |
+| `misch deviations` | Validate inline and project suppressions; optionally emit a Markdown deviation record or check staleness. |
 
-Exit codes are CI-friendly and format-independent: `0` clean (or no new findings under `--baseline`), `1` findings (or unjustified/unknown deviations), `2` config, compile-DB, scope, or engine error.
+Run `misch COMMAND --help` for command options.
+
+Exit codes are format-independent:
+
+- `0`: clean, no new baseline findings, or valid deviations;
+- `1`: findings, new baseline findings, or invalid deviations;
+- `2`: configuration, scope, compilation-database, initialization, or engine error.
 
 ## Configuration
 
-`misch init` writes a documented `misra.toml`; the essentials:
+`misch` reads `misra.toml` from the current working directory unless `-c PATH` is supplied. It does not search parent directories. Relative configuration paths are resolved from the selected file's directory.
+
+A minimal configuration looks like this:
 
 ```toml
 [project]
-scope   = ["src/", "include/"]                 # analysed
-exclude = ["tests/", "subprojects/"]           # explicitly out of scope
+scope = ["src/", "include/"]
+exclude = ["tests/", "vendor/"]
 
 [db]
-source = "meson"                               # meson | cmake | existing
-# Plain-Make projects: generate a DB (e.g. `bear -- make`) and use "existing".
+source = "existing"
+path = "build/compile_commands.json"
 
 [platform]
-preset = "unix64"                              # cppcheck built-in, or [platform].xml
+preset = "unix64"
 
 [rules]
-texts = "${MISRA_RULE_TEXTS}"                  # bring-your-own; optional
+texts = "${MISRA_RULE_TEXTS}"
 ```
 
-## Scaffolded project layout
+See the [Configuration reference](https://github.com/aajll/misch/blob/master/docs/configuration.md) for all sections, path rules, report formats, baselines, deviations, and initialization behavior.
 
-`misch init` creates only the requested config file. For a new integration,
-`misch init --scaffold` also creates a conventional, documented asset tree:
+## Scaffold layout
+
+`misch init --scaffold` creates:
 
 ```text
 project-root/
 ├── misra.toml
 └── analysis/
     ├── README.md
-    ├── rules/
-    │   └── README.md
-    ├── deviations/
-    │   └── misra-deviations.txt
-    └── baseline/
-        └── README.md
+    ├── rules/README.md
+    ├── deviations/misra-deviations.txt
+    └── baseline/README.md
 ```
 
-The generated config points project-level suppressions and the future baseline
-at this tree. It continues to use `$MISRA_RULE_TEXTS` (or `--rule-texts`) for
-licensed rule headlines; no rule text is generated or bundled. The baseline
-JSON is also not created during initialization: after reviewing the first run,
-use `misch baseline` to explicitly accept the current findings.
-
-Initialization is non-destructive by default. If any generated target already
-exists, no files are written. `--force` explicitly replaces every generated
-target, including scaffold documentation and deviations, so review the listed
-paths before using it.
-
-## How it works
-
-`compile_commands.json` is the universal seam: every build-system and toolchain concern collapses into "produce a normalised compile DB". A single internal Finding model backs every output (terminal, JSON, baseline diff, deviation record), so they can never disagree. Full architecture and rationale in [`docs/DESIGN.md`](docs/DESIGN.md).
+The configuration points at the deviations template and the future baseline path. Initialization creates neither licensed rule text nor a baseline acceptance file. If any generated target already exists, the command writes nothing unless `--force` is supplied; `--force` replaces every generated regular file.
 
 ## Documentation
 
-- [`docs/DESIGN.md`](docs/DESIGN.md): architecture, the scope and deviation strategy.
-- [`docs/rule-texts.md`](docs/rule-texts.md): bringing your own MISRA headlines.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md): dev setup, tests, adding engines/normalisers.
-- [`CHANGELOG.md`](CHANGELOG.md): release notes.
+- [Configuration reference](https://github.com/aajll/misch/blob/master/docs/configuration.md)
+- [Architecture and limitations](https://github.com/aajll/misch/blob/master/docs/architecture.md)
+- [Rule-text format and handling](https://github.com/aajll/misch/blob/master/docs/rule-texts.md)
+- [Contributing](https://github.com/aajll/misch/blob/master/CONTRIBUTING.md)
+- [Changelog](https://github.com/aajll/misch/blob/master/CHANGELOG.md)
 
 ## License
 
-MIT (see [`LICENSE`](LICENSE)). `misch` contains and ships no MISRA material; rule texts are bring-your-own from your licensed copy.
+`misch` is distributed under the [MIT License](https://github.com/aajll/misch/blob/master/LICENSE). It contains no MISRA guideline text; users must source and handle any rule-text file according to their own licence.

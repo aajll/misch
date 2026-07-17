@@ -460,6 +460,28 @@ def test_config_rejects_bad_output_entry(tmp_path: Path):
         load(bad)
 
 
+def test_config_resolves_platform_and_report_paths_from_config(
+    tmp_path: Path, monkeypatch
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = project / "misra.toml"
+    config.write_text(
+        '[platform]\nxml = "analysis/platform.xml"\n'
+        '[report]\noutputs = [{format = "json", path = "reports/misra.json"}]\n'
+    )
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    cfg = load(config)
+
+    assert cfg.platform == str(project / "analysis/platform.xml")
+    assert cfg.outputs == [
+        {"format": "json", "path": str(project / "reports/misra.json")}
+    ]
+
+
 def test_resolve_compile_db_missing_existing_file(tmp_path: Path):
     c = _cfg(tmp_path, scope=["src/"], exclude=[])
     with pytest.raises(DbError, match="does not exist"):

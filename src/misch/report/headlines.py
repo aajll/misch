@@ -1,7 +1,7 @@
 """Parse a bring-your-own MISRA headlines (rule-texts) file.
 
 The harness ships no MISRA material. The user supplies the cppcheck-format
-headlines file (see docs/rule-texts.md); we parse it only to attach a short
+headlines file (see the rule-text documentation); we parse it only to attach a short
 title and the guideline category (Mandatory / Required / Advisory) to findings.
 Parsing is deliberately tolerant: anything we cannot read stays `unknown`.
 """

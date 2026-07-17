@@ -1,48 +1,46 @@
-# Bring-your-own MISRA rule texts (headlines)
+# Rule texts
 
-`misch` ships **no MISRA material**. The MISRA C:2023 guideline text is copyrighted by The MISRA Consortium and must not be redistributed, so the harness never bundles, reproduces, or derives it.
+`misch` and cppcheck do not need guideline prose to detect findings. An optional rule-text file adds human-readable headlines and Mandatory, Required, or Advisory categories to reports.
 
-## What the file is for
+MISRA C:2023 guideline text is copyrighted by The MISRA Consortium. `misch` does not bundle, reproduce, derive, or generate it. Create any rule-text file from a copy you are licensed to use and store or distribute it only as that licence permits.
 
-cppcheck's `misra.py` addon runs its **checks** without any rule-texts file; it just reports rule numbers (`misra-c2012-11.4`). The rule-texts file adds two things the harness uses for display and classification only:
+## Configure the file
 
-- a short **headline** per rule, and
-- the guideline **category** (Mandatory / Required / Advisory).
-
-Without it, analysis still runs; findings are simply tagged `category: unknown`.
-
-## How to provide it
-
-Create the file from your own licensed copy of the MISRA C:2023 document, in the [cppcheck rule-texts format](https://cppcheck.sourceforge.io/misra.php), then point the harness at it by either exporting an environment variable:
+The file must use the format accepted by cppcheck's `misra.py` addon. Point `misch` at it with an environment variable:
 
 ```sh
-export MISRA_RULE_TEXTS=/path/to/misra_c_2023_headlines_for_cppcheck.txt
+export MISRA_RULE_TEXTS=/secure/path/misra-headlines.txt
 ```
 
-or naming it in `misra.toml`:
+Or set a path in `misra.toml`:
 
 ```toml
 [rules]
-texts = "${MISRA_RULE_TEXTS}"          # env-expanded
-# texts = "analysis/headlines.txt"     # or a path relative to the config
+texts = "/secure/path/misra-headlines.txt"
 ```
 
-Resolution precedence is `$MISRA_RULE_TEXTS` → `[rules].texts`.
+`MISRA_RULE_TEXTS` is checked first. If it does not identify a readable file, `misch` checks `[rules].texts`. Environment variables in the configured value are expanded, and a relative configured path is resolved from the directory containing `misra.toml`.
 
-## In CI
+Without a readable rule-text file, analysis continues and reports each category as `unknown`.
 
-Inject the file as a secret (or fetch it from a private, licensed location) and export `MISRA_RULE_TEXTS` before `misch run`. It must never be committed to a public repository; `.gitignore` already excludes the conventional filename.
+## Required format
 
-## Format the parser expects
+The file must include a line containing both `Appendix A` and `Summary of guidelines`, followed by rule or directive entries in cppcheck's expected form:
 
-Tolerant and best-effort. Each rule block begins with a line like:
-
-```
+```text
 Appendix A Summary of guidelines
-Rule 11.4 Advisory
-A conversion should not be performed between a pointer to object and an integer type
+Rule <chapter>.<rule> <Mandatory|Required|Advisory>
+<licensed headline>
 ```
 
-or `Dir 4.9 Advisory` for directives. The category token (`Mandatory` / `Required` / `Advisory`) may sit on the head line or the following line. Anything the parser cannot read stays `category: unknown`, and never fails the run.
+For example, the entry header uses a shape such as `Rule 11.4 Advisory`; directives use `Dir` instead of `Rule`. The category may appear on the entry header or the following line.
 
-The `Appendix A Summary of guidelines` first line matters: `misch` passes the same file to cppcheck's `misra.py` addon, whose own parser skips everything **until** a line containing `Appendix A` and `Summary of guidelines`. Without that heading the addon loads zero rules and tags every finding with a misleading `(rule-texts-file not found: ...)` note, even though `misch`'s table still shows headlines and categories (its parser is more tolerant). Files exported for cppcheck usually carry the heading already.
+The appendix heading is required by cppcheck's parser. If it is absent, cppcheck may report findings without loading the supplied text. `misch` parses the same file on a best-effort basis; an unreadable entry remains in the `unknown` category rather than failing analysis.
+
+See cppcheck's [MISRA addon documentation](https://cppcheck.sourceforge.io/misra.php) for its current file-format requirements.
+
+## Use in CI
+
+Provide the file from an access-controlled location and set `MISRA_RULE_TEXTS` before invoking `misch`. Do not place licensed text in a public repository. Whether it may be stored in a private repository or secret store depends on the applicable licence and access controls.
+
+The conventional local filename `misra_c_2023_headlines_for_cppcheck.txt` is excluded by this repository's `.gitignore`, but consumers should add an appropriate exclusion to their own project when needed.

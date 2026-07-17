@@ -32,6 +32,7 @@ dependencies = [
 ]
 
 [project.urls]
+Documentation = "https://github.com/aajll/misch#documentation"
 Repository = "https://github.com/aajll/misch"
 Changelog = "https://github.com/aajll/misch/blob/master/CHANGELOG.md"
 Issues = "https://github.com/aajll/misch/issues"
