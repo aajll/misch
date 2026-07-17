@@ -157,8 +157,13 @@ def write_project_files(
     or directory is created. With ``force``, every generated target is replaced.
     """
     files = build_project_files(out, p)
+    root = out.parent
     invalid = sorted(
-        {blocker for path in files if (blocker := _path_blocker(path)) is not None}
+        {
+            blocker
+            for path in files
+            if (blocker := _path_blocker(path, root)) is not None
+        }
     )
     if invalid:
         raise ScaffoldPathError(invalid)
@@ -173,16 +178,24 @@ def write_project_files(
     return list(files)
 
 
-def _path_blocker(path: Path) -> Path | None:
-    """Return a non-directory parent or non-file target, if present."""
-    if path.exists() and not path.is_file():
+def _path_blocker(path: Path, root: Path) -> Path | None:
+    """Return an invalid target or parent inside the generated layout."""
+    if path.is_symlink() or (path.exists() and not path.is_file()):
         return path
 
     parent = path.parent
-    while not parent.exists() and parent != parent.parent:
+    while parent != root:
+        if parent.is_symlink() or (parent.exists() and not parent.is_dir()):
+            return parent
         parent = parent.parent
-    if parent.exists() and not parent.is_dir():
-        return parent
+
+    anchor = root
+    while not anchor.exists() and anchor != anchor.parent:
+        if anchor.is_symlink():
+            return anchor
+        anchor = anchor.parent
+    if anchor.is_symlink() or (anchor.exists() and not anchor.is_dir()):
+        return anchor
     return None
 
 

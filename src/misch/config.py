@@ -65,10 +65,9 @@ def load(config_path: Path) -> Config:
             f"db.source must be one of {sorted(_VALID_DB_SOURCES)}, got {db_source!r}"
         )
 
-    platform_xml = platform.get("xml")
     plat = (
-        str(_resolve_path(platform_xml, root, ""))
-        if platform_xml
+        str(_configured_path(platform["xml"], root, "platform.xml"))
+        if "xml" in platform
         else platform.get("preset") or "unix64"
     )
 
@@ -102,13 +101,21 @@ def _resolve_path(configured: str | None, root: Path, default: str) -> Path:
     return p if p.is_absolute() else (root / p)
 
 
+def _configured_path(value: object, root: Path, key: str) -> Path:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{key} must be a non-empty string, got {value!r}")
+    return _resolve_path(value, root, "")
+
+
 def _norm_output(o: object, root: Path) -> dict:
     if isinstance(o, str):
         return {"format": o}
     if isinstance(o, dict) and "format" in o:
         output = dict(o)
         if "path" in output:
-            output["path"] = str(_resolve_path(output["path"], root, ""))
+            output["path"] = str(
+                _configured_path(output["path"], root, "report.outputs[].path")
+            )
         return output
     raise ConfigError(f"invalid report output entry: {o!r}")
 

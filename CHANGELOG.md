@@ -15,10 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Improved
 
 - Made initialization non-destructive by preflighting every generated target before writing. Existing files abort the entire operation unless `--force` is supplied, and invalid path layouts now produce controlled errors instead of partial output or tracebacks.
+- Rejected symbolic-link initialization targets and symlinked scaffold paths, including with `--force`, so generated files cannot be redirected outside the intended project layout.
 - Scaffolded configurations preserve explicit `--rule-texts` settings, point project suppressions and the future baseline at their `analysis/` paths, and intentionally generate neither licensed MISRA text nor a baseline acceptance file.
 - Moved scaffold guidance into packaged, directly editable templates that are shared by editable installs, source distributions, and wheels.
 - Restructured the documentation into a concise PyPI/GitHub README, a configuration reference, an architecture explanation, focused rule-text guidance, and contributor documentation without project-external status or roadmap material.
 - Made custom platform XML and configured report-output paths resolve relative to the selected `misra.toml`, consistent with other configured paths.
+- Validated custom platform XML and report-output paths as non-empty strings so invalid values produce a controlled configuration error instead of a traceback or later filesystem failure.
 - Added a live-updating status spinner and progress message (`Running analysis...`) during long-running engine executions (`misch run`, `misch baseline`, and `misch deviations --check-stale`) to provide feedback during large project analysis.
 - Refactored versioning to use `importlib.metadata` as a single source of truth (from `pyproject.toml`).
 
