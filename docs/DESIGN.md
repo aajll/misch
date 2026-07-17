@@ -68,6 +68,38 @@ texts = "${MISRA_RULE_TEXTS}"                         # BYO; env expands
 outputs = ["terminal"]  # + {format="json", path="build_analysis/misra.json"}
 ```
 
+## Initialization and project layout
+
+Initialization uses progressive disclosure rather than imposing a repository
+layout on every project:
+
+- `misch init` writes only the requested `misra.toml`. This is the low-impact
+  path for an established project with its own conventions.
+- `misch init --scaffold` keeps `misra.toml` visible at the project root and
+  creates a conventional `analysis/` tree for documentation, project-level
+  deviations, rule-text guidance, and the configured baseline destination.
+
+This hybrid layout separates the small, discoverable control file from larger
+or policy-sensitive analysis assets without making the convention mandatory.
+All generated paths remain ordinary config values and can be edited afterward.
+
+The scaffold deliberately does **not** create a rule-text file. MISRA guideline
+text is licensed bring-your-own material, and an empty placeholder would look
+valid to the loader while being invalid for cppcheck. Instead,
+`analysis/rules/README.md` documents the required cppcheck format, the
+`Appendix A Summary of guidelines` marker, environment precedence, and the
+source-control boundary. `--rule-texts` remains effective in scaffold mode.
+
+The scaffold also does **not** create `misra-baseline.json`. A baseline is an
+explicit acceptance of current findings, not an initialization default. The
+config points at `analysis/baseline/misra-baseline.json`, and `misch baseline`
+creates its parent directories and canonical schema after review.
+
+Initialization is transactional with respect to path collisions: every target
+is checked before any directory or file is written. If one exists, the command
+fails and reports all conflicts. `--force` is the explicit, whole-generation
+replacement operation; it applies equally to `misra.toml` and scaffold assets.
+
 ## Scope: protecting non-audited content
 
 The failure mode is silent scope creep, so **exclusion is explicit and enumerated, never implicit**:

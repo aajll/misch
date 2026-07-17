@@ -28,7 +28,8 @@ From a checkout: `uv tool install .` (or `uv sync && uv run misch ...`).
 
 ```sh
 cd /path/to/your/c-project
-misch init                 # write a commented misra.toml (flags pre-fill it)
+misch init --scaffold      # config + documented analysis/ asset tree
+# Or use `misch init` when you only want the config file.
 misch run                  # analyse; categorised report; non-zero exit on findings
 misch baseline             # accept current findings as the baseline
 misch run --baseline       # from now on, fail only on NEW findings
@@ -67,7 +68,7 @@ Run with -v/--verbose for the per-location listing.
 
 | Command            | Purpose                                                                                                                                                         |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `misch init`       | Generate a commented `misra.toml`; flags (`--db`, `--scope`, `--exclude`, `--platform`, `--rule-texts`, …) pre-fill each section.                               |
+| `misch init`       | Generate a commented `misra.toml`; add `--scaffold` for a documented `analysis/` asset tree. Other flags (`--db`, `--scope`, `--exclude`, `--platform`, `--rule-texts`, …) pre-fill the config. |
 | `misch run`        | Analyse. Rule table + summary (add `-v` for per-location detail, or `--format json`/`--format sarif`). Exit 1 on findings; `--baseline` fails only on new ones. |
 | `misch baseline`   | Snapshot the current findings as the accepted baseline.                                                                                                         |
 | `misch deviations` | Harvest `cppcheck-suppress*`, enforce justifications, validate rule ids, emit a Markdown deviation record (`--format md`).                                      |
@@ -93,6 +94,35 @@ preset = "unix64"                              # cppcheck built-in, or [platform
 [rules]
 texts = "${MISRA_RULE_TEXTS}"                  # bring-your-own; optional
 ```
+
+## Scaffolded project layout
+
+`misch init` creates only the requested config file. For a new integration,
+`misch init --scaffold` also creates a conventional, documented asset tree:
+
+```text
+project-root/
+├── misra.toml
+└── analysis/
+    ├── README.md
+    ├── rules/
+    │   └── README.md
+    ├── deviations/
+    │   └── misra-deviations.txt
+    └── baseline/
+        └── README.md
+```
+
+The generated config points project-level suppressions and the future baseline
+at this tree. It continues to use `$MISRA_RULE_TEXTS` (or `--rule-texts`) for
+licensed rule headlines; no rule text is generated or bundled. The baseline
+JSON is also not created during initialization: after reviewing the first run,
+use `misch baseline` to explicitly accept the current findings.
+
+Initialization is non-destructive by default. If any generated target already
+exists, no files are written. `--force` explicitly replaces every generated
+target, including scaffold documentation and deviations, so review the listed
+paths before using it.
 
 ## How it works
 

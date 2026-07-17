@@ -35,7 +35,12 @@ from .report.renderers import (
     render_sarif,
     render_terminal,
 )
-from .scaffold import ScaffoldParams, build_config
+from .scaffold import (
+    ScaffoldConflict,
+    ScaffoldParams,
+    ScaffoldPathError,
+    write_project_files,
+)
 
 _err = Console(stderr=True)
 
@@ -109,7 +114,16 @@ def _add_init_parser(add_parser) -> None:
         default=Path("misra.toml"),
         help="where to write (default: ./misra.toml)",
     )
-    p.add_argument("--force", action="store_true", help="overwrite an existing file")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite every generated file that already exists",
+    )
+    p.add_argument(
+        "--scaffold",
+        action="store_true",
+        help="also create a documented analysis/ directory tree",
+    )
     p.add_argument(
         "--db",
         choices=["meson", "cmake", "existing"],
@@ -329,10 +343,6 @@ def _emit(cfg, report: Report, coverage, args: argparse.Namespace) -> None:
 
 def _cmd_init(args: argparse.Namespace) -> int:
     out: Path = args.output
-    if out.exists() and not args.force:
-        _err.print(f"[red]refusing to overwrite {out}[/] (pass --force)")
-        return 2
-
     params = ScaffoldParams(
         scope=args.scope or ["src/"],
         exclude=args.exclude or ["tests/", "subprojects/"],
@@ -342,11 +352,28 @@ def _cmd_init(args: argparse.Namespace) -> int:
         platform_xml=args.platform_xml,
         rule_texts=args.rule_texts,
         defines=args.define,
+        scaffolded=args.scaffold,
     )
-    out.write_text(build_config(params))
+    try:
+        written = write_project_files(out, params, force=args.force)
+    except ScaffoldConflict as exc:
+        _err.print("[red]refusing to overwrite existing init target(s):[/]")
+        for path in exc.paths:
+            _err.print(f"  [red]-[/] {path}")
+        _err.print("Pass [bold]--force[/] to replace every listed target.")
+        return 2
+    except ScaffoldPathError as exc:
+        _err.print("[red]cannot create regular init file(s) at these paths:[/]")
+        for path in exc.paths:
+            _err.print(f"  [red]-[/] {path}")
+        return 2
+
+    if args.scaffold:
+        _err.print(f"[green]scaffolded[/] {out.parent / 'analysis'}")
     _err.print(
-        f"[green]wrote {out}[/]. Review the scope/exclude and db source, "
-        "then run [bold]misch run[/]."
+        f"[green]wrote {len(written)} file(s)[/] including {out}. "
+        "Review scope/exclude and the compile-DB source, then run "
+        "[bold]misch run[/]."
     )
     return 0
 
