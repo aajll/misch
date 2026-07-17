@@ -6,6 +6,8 @@ import json
 from importlib.resources import files as resource_files
 from pathlib import Path
 
+import pytest
+
 from misch.cli import main
 from misch.config import load
 from misch.report.baseline import SCHEMA, write_baseline
@@ -131,6 +133,87 @@ def test_scaffold_force_does_not_replace_directory_with_file(tmp_path: Path, cap
     assert main(["init", "--scaffold", "--force", "-o", str(out)]) == 2
     assert out.is_dir()
     assert not (tmp_path / "analysis").exists()
+    assert "cannot create regular init" in capsys.readouterr().err
+
+
+def test_scaffold_reports_blocker_above_missing_output_directory(
+    tmp_path: Path, capsys
+):
+    blocker = tmp_path / "project"
+    blocker.write_text("not a directory\n")
+    out = blocker / "config/misra.toml"
+
+    assert main(["init", "--scaffold", "-o", str(out)]) == 2
+
+    assert blocker.read_text() == "not a directory\n"
+    assert "cannot create regular init" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_scaffold_rejects_dangling_config_symlink_without_writes(
+    tmp_path: Path, capsys, force: bool
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    out = project / "misra.toml"
+    external = tmp_path / "outside.toml"
+    out.symlink_to(external)
+    args = ["init", "--scaffold", "-o", str(out)]
+    if force:
+        args.append("--force")
+
+    assert main(args) == 2
+
+    assert out.is_symlink()
+    assert not external.exists()
+    assert not (project / "analysis").exists()
+    assert "cannot create regular init" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_scaffold_rejects_symlinked_analysis_directory_without_writes(
+    tmp_path: Path, capsys, force: bool
+):
+    project = tmp_path / "project"
+    project.mkdir()
+    external = tmp_path / "outside"
+    external.mkdir()
+    analysis = project / "analysis"
+    analysis.symlink_to(external, target_is_directory=True)
+    out = project / "misra.toml"
+    args = ["init", "--scaffold", "-o", str(out)]
+    if force:
+        args.append("--force")
+
+    assert main(args) == 2
+
+    assert analysis.is_symlink()
+    assert list(external.iterdir()) == []
+    assert not out.exists()
+    assert "cannot create regular init" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_scaffold_rejects_generated_file_symlink_without_writes(
+    tmp_path: Path, capsys, force: bool
+):
+    project = tmp_path / "project"
+    rules = project / "analysis/rules"
+    rules.mkdir(parents=True)
+    external = tmp_path / "outside.md"
+    linked_target = rules / "README.md"
+    linked_target.symlink_to(external)
+    out = project / "misra.toml"
+    args = ["init", "--scaffold", "-o", str(out)]
+    if force:
+        args.append("--force")
+
+    assert main(args) == 2
+
+    assert linked_target.is_symlink()
+    assert not external.exists()
+    assert not out.exists()
+    assert not (project / "analysis/README.md").exists()
     assert "cannot create regular init" in capsys.readouterr().err
 
 

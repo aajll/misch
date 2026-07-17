@@ -460,6 +460,56 @@ def test_config_rejects_bad_output_entry(tmp_path: Path):
         load(bad)
 
 
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        pytest.param("[platform]\nxml = 42\n", "platform.xml", id="platform-type"),
+        pytest.param("[platform]\nxml = \"\"\n", "platform.xml", id="platform-empty"),
+        pytest.param(
+            "[report]\noutputs = [{format = \"json\", path = 42}]\n",
+            "report.outputs[].path",
+            id="report-type",
+        ),
+        pytest.param(
+            "[report]\noutputs = [{format = \"json\", path = \"\"}]\n",
+            "report.outputs[].path",
+            id="report-empty",
+        ),
+    ],
+)
+def test_config_rejects_invalid_path_values_with_controlled_cli_error(
+    tmp_path: Path, capsys, text: str, key: str
+):
+    config = tmp_path / "misra.toml"
+    config.write_text(text)
+
+    with pytest.raises(ConfigError) as exc:
+        load(config)
+    assert key in str(exc.value)
+    assert "non-empty string" in str(exc.value)
+
+    assert main(["run", "-c", str(config)]) == 2
+    error = capsys.readouterr().err
+    assert "config error" in error
+    assert key in error
+
+
+def test_config_preserves_absolute_platform_and_report_paths(tmp_path: Path):
+    platform = tmp_path / "platform.xml"
+    report = tmp_path / "reports/misra.json"
+    config = tmp_path / "misra.toml"
+    config.write_text(
+        f'[platform]\nxml = "{platform.as_posix()}"\n'
+        "[report]\n"
+        f'outputs = [{{format = "json", path = "{report.as_posix()}"}}]\n'
+    )
+
+    cfg = load(config)
+
+    assert cfg.platform == str(platform)
+    assert cfg.outputs == [{"format": "json", "path": str(report)}]
+
+
 def test_config_resolves_platform_and_report_paths_from_config(
     tmp_path: Path, monkeypatch
 ):
