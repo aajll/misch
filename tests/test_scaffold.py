@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from importlib.resources import files as resource_files
 from pathlib import Path
 
 from misch.cli import main
@@ -37,6 +38,13 @@ def test_scaffold_cli_creates_documented_loadable_layout(tmp_path: Path, monkeyp
     assert not (tmp_path / "analysis/rules/misra-rules.md").exists()
     assert not (tmp_path / "analysis/baseline/misra-baseline.json").exists()
 
+    templates = resource_files("misch").joinpath("templates", "analysis")
+    for generated in expected - {out}:
+        relative = generated.relative_to(tmp_path / "analysis")
+        packaged = templates.joinpath(*relative.parts)
+        assert packaged.is_file()
+        assert generated.read_text() == packaged.read_text(encoding="utf-8")
+
     cfg = load(out)
     assert cfg.rule_texts is None
     assert cfg.suppressions_path == (
@@ -51,7 +59,7 @@ def test_scaffold_cli_creates_documented_loadable_layout(tmp_path: Path, monkeyp
     assert "misch baseline" in analysis_help
     assert "licensed" in rules_help.lower()
     assert "Appendix A Summary of guidelines" in rules_help
-    assert "explicit acceptance" in baseline_help
+    assert "explicitly accepts" in baseline_help
     assert "misch deviations --check-stale" in deviations
 
 

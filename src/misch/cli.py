@@ -178,7 +178,7 @@ def _analyse(cfg, *, inline_suppr: bool = True) -> tuple[Report, dbmod.ScopeCove
         _err.print(
             "[yellow]note:[/] no MISRA rule-texts found (set $MISRA_RULE_TEXTS "
             "or \\[rules].texts). Findings will be tagged category: unknown. "
-            "See docs/rule-texts.md."
+            "See https://github.com/aajll/misch/blob/master/docs/rule-texts.md."
         )
     rules = load_headlines(cfg.rule_texts) if cfg.rule_texts else {}
 

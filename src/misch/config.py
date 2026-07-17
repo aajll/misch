@@ -1,7 +1,7 @@
 """Load and validate `misra.toml`.
 
 Everything that differs between projects is data here, not shell. See
-docs/DESIGN.md for the full schema.
+docs/configuration.md for the full schema.
 """
 
 from __future__ import annotations
@@ -65,10 +65,15 @@ def load(config_path: Path) -> Config:
             f"db.source must be one of {sorted(_VALID_DB_SOURCES)}, got {db_source!r}"
         )
 
-    plat = platform.get("xml") or platform.get("preset") or "unix64"
+    platform_xml = platform.get("xml")
+    plat = (
+        str(_resolve_path(platform_xml, root, ""))
+        if platform_xml
+        else platform.get("preset") or "unix64"
+    )
 
     outputs = report.get("outputs") or [{"format": "terminal"}]
-    outputs = [_norm_output(o) for o in outputs]
+    outputs = [_norm_output(o, root) for o in outputs]
 
     return Config(
         project_root=root,
@@ -97,11 +102,14 @@ def _resolve_path(configured: str | None, root: Path, default: str) -> Path:
     return p if p.is_absolute() else (root / p)
 
 
-def _norm_output(o: object) -> dict:
+def _norm_output(o: object, root: Path) -> dict:
     if isinstance(o, str):
         return {"format": o}
     if isinstance(o, dict) and "format" in o:
-        return dict(o)
+        output = dict(o)
+        if "path" in output:
+            output["path"] = str(_resolve_path(output["path"], root, ""))
+        return output
     raise ConfigError(f"invalid report output entry: {o!r}")
 
 

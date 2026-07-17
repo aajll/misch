@@ -1,9 +1,4 @@
-"""The single internal Finding model.
-
-cppcheck is always run in XML mode and normalised into this model. Every
-output - terminal, JSON, baseline diff, scope-coverage, deviation record - is a
-projection of it, so they can never disagree.
-"""
+"""Normalised findings used by analysis reports and baseline comparison."""
 
 from __future__ import annotations
 

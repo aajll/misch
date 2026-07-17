@@ -8,6 +8,7 @@ written so initialization cannot partially overwrite an existing setup.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from importlib.resources import files as resource_files
 from pathlib import Path
 
 
@@ -52,7 +53,8 @@ def build_config(p: ScaffoldParams) -> str:
     lines: list[str] = []
     add = lines.append
 
-    add("# misch configuration. See misch/docs/DESIGN.md for the full schema.")
+    add("# misch configuration. See the project configuration reference:")
+    add("# https://github.com/aajll/misch/blob/master/docs/configuration.md")
     add("")
 
     add("[project]")
@@ -95,7 +97,8 @@ def build_config(p: ScaffoldParams) -> str:
     if p.scaffolded:
         add("# Bring your own licensed rule texts; see analysis/rules/README.md.")
     else:
-        add("# Bring your own MISRA headlines; see docs/rule-texts.md.")
+        add("# Bring your own licensed MISRA headlines. Format and handling guide:")
+        add("# https://github.com/aajll/misch/blob/master/docs/rule-texts.md")
     add("# Precedence: $MISRA_RULE_TEXTS > this value. Absent => category: unknown.")
     add(f'texts = "{p.rule_texts}"')
     add("")
@@ -137,14 +140,11 @@ def build_project_files(out: Path, p: ScaffoldParams) -> dict[Path, str]:
         return files
 
     root = out.parent / "analysis"
-    files.update(
-        {
-            root / "README.md": _ANALYSIS_README,
-            root / "rules" / "README.md": _RULES_README,
-            root / "deviations" / "misra-deviations.txt": _DEVIATIONS_TEMPLATE,
-            root / "baseline" / "README.md": _BASELINE_README,
-        }
-    )
+    for relative in _SCAFFOLD_TEMPLATES:
+        template = resource_files("misch").joinpath(
+            "templates", "analysis", *relative.parts
+        )
+        files[root / relative] = template.read_text(encoding="utf-8")
     return files
 
 
@@ -186,70 +186,9 @@ def _path_blocker(path: Path) -> Path | None:
     return None
 
 
-_ANALYSIS_README = """# MISRA analysis assets
-
-This tree was created by `misch init --scaffold`. Paths are resolved relative
-to the project-root `misra.toml`.
-
-- `rules/` explains how to provide licensed MISRA rule headlines.
-- `deviations/` contains reviewed project-level cppcheck suppressions.
-- `baseline/` is the configured destination for the ratchet snapshot.
-
-Recommended workflow:
-
-1. Review `misra.toml`, especially scope, exclusions, and compile-DB settings.
-2. Provide rule texts as described in `rules/README.md`.
-3. Run `misch run` and fix or justify findings.
-4. Run `misch baseline` only after explicitly accepting existing findings.
-5. Commit reviewed deviations and the generated baseline to source control.
-
-Do not commit licensed MISRA rule text to a repository unless its licence and
-the repository's access controls permit that distribution.
-"""
-
-_RULES_README = """# MISRA rule texts
-
-`misch` does not ship MISRA guideline text. Supply a headlines file generated
-from your own licensed copy and point `[rules].texts` or the
-`MISRA_RULE_TEXTS` environment variable at it. The environment variable takes
-precedence over `misra.toml`.
-
-The cppcheck-format file must contain an `Appendix A Summary of guidelines`
-heading followed by entries such as `Rule 11.4 Advisory` and the corresponding
-headline. See the [rule-text documentation](https://github.com/aajll/misch/blob/master/docs/rule-texts.md)
-for the exact format and CI guidance.
-
-Do not place licensed text in a public repository. Prefer injecting it from a
-private CI secret or another access-controlled location.
-"""
-
-_DEVIATIONS_TEMPLATE = """# Project-level MISRA deviations (cppcheck suppressions).
-#
-# Prefer a justified inline cppcheck-suppress for a single site. Every active
-# entry below must have a preceding comment explaining why the deviation is
-# necessary. Narrow entries with :file or :file:line whenever possible.
-#
-# Example (leave commented until deliberately adopted):
-# Third-party SDK is upstream-owned and outside the remediation boundary.
-# *:*/vendor/*
-#
-# Audit this file and inline deviations with:
-#   misch deviations --check-stale
-"""
-
-_BASELINE_README = """# MISRA baseline
-
-The configured ratchet file is `misra-baseline.json`. It is intentionally not
-created by `misch init --scaffold`: a baseline records an explicit acceptance
-of the project's current findings.
-
-After reviewing the initial report, run:
-
-```sh
-misch baseline
-misch run --baseline
-```
-
-Commit the resulting JSON file so CI can reject new findings. Regenerate it
-only as a deliberate review decision; do not hand-edit it.
-"""
+_SCAFFOLD_TEMPLATES = (
+    Path("README.md"),
+    Path("rules/README.md"),
+    Path("deviations/misra-deviations.txt"),
+    Path("baseline/README.md"),
+)

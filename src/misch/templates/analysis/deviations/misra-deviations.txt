@@ -1,0 +1,13 @@
+# Project-level MISRA deviations (cppcheck suppressions).
+#
+# Prefer a justified inline cppcheck-suppress for a single source location.
+# Every active entry in this file must have a preceding comment that explains
+# why the deviation is necessary. Use :file or :file:line to keep its scope as
+# narrow as practical.
+#
+# Example (leave commented until deliberately adopted):
+# External code is maintained upstream and is outside the remediation boundary.
+# *:*/vendor/*
+#
+# Audit this file and inline deviations with:
+#   misch deviations --check-stale
