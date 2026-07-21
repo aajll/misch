@@ -2,7 +2,7 @@
 
 `misch` and cppcheck do not need guideline prose to detect findings. An optional rule-text file adds human-readable headlines and Mandatory, Required, or Advisory categories to reports.
 
-MISRA C:2023 guideline text is copyrighted by The MISRA Consortium. `misch` does not bundle, reproduce, derive, or generate it. Create any rule-text file from a copy you are licensed to use and store or distribute it only as that licence permits.
+MISRA C:2023 guideline text is copyrighted by The MISRA Consortium. `misch` does not bundle, reproduce, derive, or generate it. Create any rule-text file from a copy you are licensed to use and store or distribute it only as that licence permits. The MISRA Consortium does provide some base headlines [here](https://gitlab.com/MISRA/MISRA-C/MISRA-C-2012/tools) to get you started.
 
 ## Configure the file
 
