@@ -120,15 +120,13 @@ def _deep_merge(target: dict, patch: dict, *, profile_name: str | None = None) -
     prefix = f"profile {profile_name!r}: " if profile_name else ""
     for k, v in patch.items():
         if k.startswith("append_"):
-            real_key = k[len("append_"):]
+            real_key = k[len("append_") :]
             if real_key not in target:
                 raise ConfigError(
                     f"{prefix}{k}: key {real_key!r} not found in base config"
                 )
             if not isinstance(target[real_key], list):
-                raise ConfigError(
-                    f"{prefix}{k}: key {real_key!r} is not a list"
-                )
+                raise ConfigError(f"{prefix}{k}: key {real_key!r} is not a list")
             if isinstance(v, list):
                 target[real_key].extend(v)
             else:

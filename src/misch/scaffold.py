@@ -134,8 +134,8 @@ def build_config(p: ScaffoldParams) -> str:
     add("# Scalar values are replaced; lists are replaced by default or extended")
     add("# with the append_ prefix (e.g. toolchain.append_defines).")
     add("# [profiles.aarch64]")
-    add("# platform.preset = \"arm\"")
-    add("# toolchain.append_defines = [\"ARCH_ARM64\"]")
+    add('# platform.preset = "arm"')
+    add('# toolchain.append_defines = ["ARCH_ARM64"]')
     add("")
 
     return "\n".join(lines)

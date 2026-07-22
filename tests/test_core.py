@@ -464,14 +464,14 @@ def test_config_rejects_bad_output_entry(tmp_path: Path):
     ("text", "key"),
     [
         pytest.param("[platform]\nxml = 42\n", "platform.xml", id="platform-type"),
-        pytest.param("[platform]\nxml = \"\"\n", "platform.xml", id="platform-empty"),
+        pytest.param('[platform]\nxml = ""\n', "platform.xml", id="platform-empty"),
         pytest.param(
-            "[report]\noutputs = [{format = \"json\", path = 42}]\n",
+            '[report]\noutputs = [{format = "json", path = 42}]\n',
             "report.outputs[].path",
             id="report-type",
         ),
         pytest.param(
-            "[report]\noutputs = [{format = \"json\", path = \"\"}]\n",
+            '[report]\noutputs = [{format = "json", path = ""}]\n',
             "report.outputs[].path",
             id="report-empty",
         ),
@@ -661,6 +661,7 @@ def test_render_baseline_summary_lists_new_and_fixed(tmp_path: Path, capsys):
 
 def test_load_profiles_default(tmp_path: Path):
     from misch.config import load
+
     config_content = """
 [project]
 scope = ["src"]
@@ -685,6 +686,7 @@ defines = ["X86"]
 
 def test_load_profiles_replace(tmp_path: Path):
     from misch.config import load
+
     config_content = """
 [project]
 scope = ["src"]
@@ -719,6 +721,7 @@ def test_load_profiles_append(tmp_path: Path):
     handled by ``_deep_merge`` which recognises the prefix on the leaf key.
     """
     from misch.config import load
+
     config_content = """
 [project]
 scope = ["src"]
@@ -751,6 +754,7 @@ def test_load_profiles_platform_xml_and_baseline(tmp_path: Path):
     `[platform].xml` and `[baseline].path` while sharing everything else.
     """
     from misch.config import load
+
     config_content = """
 [project]
 scope = ["src/", "include/"]
@@ -792,6 +796,7 @@ baseline.path = "analysis/baseline/misra-baseline.aarch64.json"
 def test_load_profiles_empty_noop(tmp_path: Path):
     """An empty profile is a no-op — base config is returned unchanged."""
     from misch.config import load
+
     config_content = """
 [project]
 scope = ["src"]
@@ -815,6 +820,7 @@ def test_load_profiles_multiple_coexist(tmp_path: Path):
     mutate the base config.
     """
     from misch.config import load
+
     config_content = """
 [project]
 scope = ["src"]
@@ -856,6 +862,7 @@ toolchain.append_defines = ["X86"]
 def test_append_missing_target_errors(tmp_path: Path):
     """append_ on a key that doesn't exist in the base raises ConfigError."""
     from misch.config import ConfigError, load
+
     config_content = """
 [project]
 scope = ["src"]
@@ -876,6 +883,7 @@ toolchain.append_defines = ["ARM"]
 def test_append_non_list_target_errors(tmp_path: Path):
     """append_ on a key that exists but is not a list raises ConfigError."""
     from misch.config import ConfigError, load
+
     config_content = """
 [project]
 scope = ["src"]
@@ -898,6 +906,7 @@ toolchain.append_defines = ["ARM"]
 
 def test_load_nonexistent_profile(tmp_path: Path):
     from misch.config import ConfigError, load
+
     config_content = """
 [project]
 scope = ["src"]
