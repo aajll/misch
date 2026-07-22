@@ -41,7 +41,7 @@ class Config:
 _VALID_DB_SOURCES = {"meson", "cmake", "existing"}
 
 
-def load(config_path: Path) -> Config:
+def load(config_path: Path, platform_name: str | None = None) -> Config:
     config_path = config_path.resolve()
     if not config_path.is_file():
         raise ConfigError(f"config not found: {config_path}")
@@ -49,6 +49,12 @@ def load(config_path: Path) -> Config:
 
     with open(config_path, "rb") as fh:
         data = tomllib.load(fh)
+
+    if platform_name:
+        profiles = data.get("profiles", {})
+        if platform_name not in profiles:
+            raise ConfigError(f"platform profile not found: {platform_name}")
+        _deep_merge(data, profiles[platform_name], profile_name=platform_name)
 
     project = data.get("project", {})
     db = data.get("db", {})
@@ -65,11 +71,15 @@ def load(config_path: Path) -> Config:
             f"db.source must be one of {sorted(_VALID_DB_SOURCES)}, got {db_source!r}"
         )
 
-    plat = (
-        str(_configured_path(platform["xml"], root, "platform.xml"))
-        if "xml" in platform
-        else platform.get("preset") or "unix64"
-    )
+    # Handle platform as a dict or a string for backward compatibility
+    if isinstance(platform, dict):
+        plat = (
+            str(_configured_path(platform["xml"], root, "platform.xml"))
+            if "xml" in platform
+            else platform.get("preset") or "unix64"
+        )
+    else:
+        plat = str(platform)
 
     outputs = report.get("outputs") or [{"format": "terminal"}]
     outputs = [_norm_output(o, root) for o in outputs]
@@ -87,6 +97,48 @@ def load(config_path: Path) -> Config:
         baseline_path=_resolve_path(baseline.get("path"), root, "misra-baseline.json"),
         suppressions_path=_optional_path(deviations.get("suppressions"), root),
     )
+
+
+def _deep_merge(target: dict, patch: dict, *, profile_name: str | None = None) -> None:
+    """Recursively merge *patch* into *target* in-place.
+
+    Supports an ``append_`` prefix on leaf keys to extend lists rather than
+    replace them.  For example, in a profile:
+
+        [profiles.arm]
+        platform.preset = "arm"
+        toolchain.append_defines = ["ARCH_ARM"]
+        project.append_exclude = ["generated/"]
+
+    This deep-merges the ``platform`` table, replaces scalar values normally,
+    and appends to the existing ``toolchain.defines`` and ``project.exclude``
+    lists.
+
+    Raises ``ConfigError`` if ``append_<key>`` references a missing or
+    non-list target.
+    """
+    prefix = f"profile {profile_name!r}: " if profile_name else ""
+    for k, v in patch.items():
+        if k.startswith("append_"):
+            real_key = k[len("append_"):]
+            if real_key not in target:
+                raise ConfigError(
+                    f"{prefix}{k}: key {real_key!r} not found in base config"
+                )
+            if not isinstance(target[real_key], list):
+                raise ConfigError(
+                    f"{prefix}{k}: key {real_key!r} is not a list"
+                )
+            if isinstance(v, list):
+                target[real_key].extend(v)
+            else:
+                target[real_key].append(v)
+        elif isinstance(v, dict):
+            if k not in target or not isinstance(target[k], dict):
+                target[k] = {}
+            _deep_merge(target[k], v, profile_name=profile_name)
+        else:
+            target[k] = v
 
 
 def _optional_path(configured: str | None, root: Path) -> Path | None:
@@ -123,8 +175,8 @@ def _norm_output(o: object, root: Path) -> dict:
 def _resolve_rule_texts(configured: str | None, root: Path) -> str | None:
     """Precedence: $MISRA_RULE_TEXTS  >  misra.toml [rules].texts.
 
-    Returns an absolute path if a readable file is found, else None (the run
-    still works; findings are tagged category: unknown).
+    Returns an absolute path if a readable file is found, else None (the
+    run still works; findings are tagged category: unknown).
     """
     env = os.environ.get("MISRA_RULE_TEXTS")
     candidates = [env] if env else []

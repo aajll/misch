@@ -131,6 +131,53 @@ The optional file uses cppcheck's suppressions-list syntax. Each active entry mu
 
 `misch deviations` combines project entries with inline suppressions, checks justifications, and validates MISRA identifiers when rule headlines are available. Add `--format md` to write a Markdown record and `--check-stale` to compare line-level inline suppressions with an unsuppressed analysis run.
 
+## `[profiles]`: platform-specific configuration overlays
+
+A single `misra.toml` can define multiple platform profiles. Each profile is a
+TOML table under `[profiles.<name>]` that patches the base configuration.
+
+```toml
+# Base configuration (e.g. x86_64)
+[platform]
+preset = "unix64"
+
+[toolchain]
+defines = ["ARCH_X86_64"]
+
+# ARM profile: replace preset, append defines
+[profiles.arm]
+platform.preset = "arm"
+toolchain.append_defines = ["ARCH_ARM"]
+
+# Another profile: replace defines entirely, append excludes
+[profiles.aarch64]
+platform.preset = "unix64"
+toolchain.defines = ["ARCH_ARM64"]
+project.append_exclude = ["generated/", "vendor/"]
+```
+
+**Merge rules:**
+
+- **Scalar values** (strings, numbers, booleans) are replaced.
+- **Nested tables** (e.g., `platform`, `toolchain`) are deep-merged.
+- **Lists** are replaced by default (e.g., `toolchain.defines = [...]`).
+- **Lists with `append_` prefix** are extended instead of replaced (e.g.,
+  `toolchain.append_defines = [...]` appends to the base `defines` list).
+
+The `append_` prefix is stripped before lookup, so `toolchain.append_defines`
+extends `toolchain.defines`, and `project.append_exclude` extends
+`project.exclude`.
+
+**Usage:**
+
+```sh
+misch run --platform arm
+misch baseline --platform aarch64
+misch deviations --platform arm
+```
+
+Without `--platform`, the base configuration is used as-is.
+
 ## `[baseline]`: accepted findings
 
 ```toml

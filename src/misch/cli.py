@@ -77,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also print the per-location listing (default: table + summary)",
     )
+    p_run.add_argument("--platform", help="platform profile name")
     p_run.set_defaults(func=_cmd_run)
 
     _add_init_parser(add_parser)
@@ -84,12 +85,14 @@ def main(argv: list[str] | None = None) -> int:
     p_bl = add_parser("baseline", help="snapshot current findings as the baseline")
     p_bl.add_argument("-c", "--config", default="misra.toml", type=Path)
     p_bl.add_argument("--baseline-file", type=Path, help="override the baseline path")
+    p_bl.add_argument("--platform", help="platform profile name")
     p_bl.set_defaults(func=_cmd_baseline)
 
     p_dev = add_parser(
         "deviations", help="harvest + validate MISRA deviations (suppressions)"
     )
     p_dev.add_argument("-c", "--config", default="misra.toml", type=Path)
+    p_dev.add_argument("--platform", help="platform profile name")
     p_dev.add_argument(
         "--check-stale",
         action="store_true",
@@ -231,7 +234,7 @@ def _analyse(cfg, *, inline_suppr: bool = True) -> tuple[Report, dbmod.ScopeCove
 
 def _cmd_run(args: argparse.Namespace) -> int:
     try:
-        cfg = load(args.config)
+        cfg = load(args.config, platform_name=args.platform)
     except ConfigError as exc:
         _err.print(f"[red]config error:[/] {exc}")
         return 2
@@ -261,7 +264,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_baseline(args: argparse.Namespace) -> int:
     try:
-        cfg = load(args.config)
+        cfg = load(args.config, platform_name=args.platform)
     except ConfigError as exc:
         _err.print(f"[red]config error:[/] {exc}")
         return 2
@@ -282,7 +285,7 @@ def _cmd_baseline(args: argparse.Namespace) -> int:
 
 def _cmd_deviations(args: argparse.Namespace) -> int:
     try:
-        cfg = load(args.config)
+        cfg = load(args.config, platform_name=args.platform)
     except ConfigError as exc:
         _err.print(f"[red]config error:[/] {exc}")
         return 2
