@@ -928,17 +928,40 @@ toolchain.append_defiens = ["ARM"]
         load(config_file, profile_name="arm")
 
 
-def test_load_nonexistent_profile(tmp_path: Path):
+def test_load_nonexistent_profile_lists_available(tmp_path: Path):
+    """An unknown profile names the valid alternatives to aid discovery."""
     from misch.config import ConfigError, load
 
     config_content = """
 [project]
 scope = ["src"]
+
+[profiles.aarch64]
+platform.preset = "unix64"
+
+[profiles.arm]
+platform.preset = "unix32"
 """
     config_file = tmp_path / "misra.toml"
     config_file.write_text(config_content)
 
-    with pytest.raises(ConfigError, match="profile not found: unknown"):
+    with pytest.raises(
+        ConfigError,
+        match=r"profile not found: 'unknown' \(available: aarch64, arm\)",
+    ):
+        load(config_file, profile_name="unknown")
+
+
+def test_load_nonexistent_profile_no_profiles(tmp_path: Path):
+    """With no [profiles] table at all, the error reports 'none' available."""
+    from misch.config import ConfigError, load
+
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text('[project]\nscope = ["src"]\n')
+
+    with pytest.raises(
+        ConfigError, match=r"profile not found: 'unknown' \(available: none\)"
+    ):
         load(config_file, profile_name="unknown")
 
 
@@ -985,6 +1008,87 @@ platform = "native"
 
     cfg = load(config_file, profile_name="arm")
     assert cfg.platform == "native"
+
+
+def test_platform_rejects_both_preset_and_xml(tmp_path: Path):
+    """preset and xml are mutually exclusive selectors, in base config."""
+    from misch.config import ConfigError, load
+
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(
+        '[platform]\npreset = "unix64"\nxml = "plat.xml"\n[project]\nscope = ["src"]\n'
+    )
+
+    with pytest.raises(ConfigError, match="platform: set either 'preset' or 'xml'"):
+        load(config_file)
+
+
+def test_profile_platform_replaces_wholesale_preset_to_xml(tmp_path: Path):
+    """A profile setting platform.xml supersedes a base preset (no leftover
+    preset causing a both-set error), and vice versa.
+    """
+    from misch.config import load
+
+    config_content = """
+[project]
+scope = ["src"]
+
+[platform]
+preset = "unix64"
+
+[profiles.aarch64]
+platform.xml = "aarch64_platform.xml"
+"""
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(config_content)
+
+    cfg = load(config_file, profile_name="aarch64")
+    assert cfg.platform == str(tmp_path / "aarch64_platform.xml")
+
+
+def test_profile_platform_replaces_wholesale_xml_to_preset(tmp_path: Path):
+    """The reverse switch: base uses xml, a profile switches to a preset."""
+    from misch.config import load
+
+    config_content = """
+[project]
+scope = ["src"]
+
+[platform]
+xml = "x86.xml"
+
+[profiles.arm]
+platform.preset = "unix32"
+"""
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(config_content)
+
+    cfg = load(config_file, profile_name="arm")
+    assert cfg.platform == "unix32"
+
+
+def test_profile_report_output_allows_extra_keys(tmp_path: Path):
+    """Profile report outputs accept the same shape as the base [report] parser,
+    including passthrough keys the base tolerates.
+    """
+    from misch.config import load
+
+    config_content = """
+[project]
+scope = ["src"]
+
+[report]
+outputs = [{format = "terminal"}]
+
+[profiles.arm]
+report.append_outputs = [{format = "json", path = "out.json", note = "extra"}]
+"""
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(config_content)
+
+    cfg = load(config_file, profile_name="arm")
+    formats = {o["format"] for o in cfg.outputs}
+    assert formats == {"terminal", "json"}
 
 
 @pytest.mark.parametrize(

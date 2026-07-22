@@ -75,7 +75,10 @@ def load(config_path: Path, profile_name: str | None = None) -> Config:
         if not isinstance(profiles, dict):
             raise ConfigError("[profiles] must be a TOML table")
         if profile_name not in profiles:
-            raise ConfigError(f"profile not found: {profile_name}")
+            available = ", ".join(sorted(profiles)) or "none"
+            raise ConfigError(
+                f"profile not found: {profile_name!r} (available: {available})"
+            )
         profile = profiles[profile_name]
         if not isinstance(profile, dict):
             raise ConfigError(f"profile {profile_name!r} must be a TOML table")
@@ -97,8 +100,12 @@ def load(config_path: Path, profile_name: str | None = None) -> Config:
             f"db.source must be one of {sorted(_VALID_DB_SOURCES)}, got {db_source!r}"
         )
 
-    # Handle platform as a dict or a string for backward compatibility
+    # Handle platform as a dict or a string for backward compatibility.
+    # preset and xml are mutually exclusive selectors; reject a config that
+    # sets both rather than silently preferring one.
     if isinstance(platform, dict):
+        if "xml" in platform and "preset" in platform:
+            raise ConfigError("platform: set either 'preset' or 'xml', not both")
         plat = (
             str(_configured_path(platform["xml"], root, "platform.xml"))
             if "xml" in platform
@@ -125,6 +132,17 @@ def load(config_path: Path, profile_name: str | None = None) -> Config:
     )
 
 
+def _strip_append(key: str) -> tuple[str, bool]:
+    """Split an ``append_``-prefixed leaf key into ``(target_key, is_append)``.
+
+    Shared by profile validation and merging so the prefix convention lives in
+    one place.
+    """
+    if key.startswith("append_"):
+        return key[len("append_") :], True
+    return key, False
+
+
 def _validate_profile(profile: dict, profile_name: str) -> None:
     """Reject profile keys and values outside the supported overlay schema."""
     for section, values in profile.items():
@@ -141,8 +159,7 @@ def _validate_profile(profile: dict, profile_name: str) -> None:
             _profile_error(profile_name, section, "must be a TOML table")
 
         for key, value in values.items():
-            is_append = key.startswith("append_")
-            actual_key = key[len("append_") :] if is_append else key
+            actual_key, is_append = _strip_append(key)
             path = f"{section}.{key}"
             if actual_key not in _PROFILE_FIELDS[section]:
                 _profile_error(profile_name, path, "is not a supported setting")
@@ -174,11 +191,11 @@ def _valid_list_value(
 
 
 def _valid_report_output(value: object) -> bool:
+    # Mirror _norm_output: a bare format string, or a table carrying a string
+    # "format". Extra keys pass through, as they do in the base [report] parser.
     if isinstance(value, str):
         return True
-    if not isinstance(value, dict) or set(value) - {"format", "path"}:
-        return False
-    if not isinstance(value.get("format"), str):
+    if not isinstance(value, dict) or not isinstance(value.get("format"), str):
         return False
     return "path" not in value or isinstance(value["path"], str)
 
@@ -211,14 +228,15 @@ def _deep_merge(
     Supports an ``append_`` prefix on leaf keys to extend lists rather than
     replace them.  For example, in a profile:
 
-        [profiles.arm]
-        platform.preset = "arm"
-        toolchain.append_defines = ["ARCH_ARM"]
+        [profiles.aarch64]
+        platform.xml = "analysis/aarch64_platform.xml"
+        toolchain.append_defines = ["ARCH_ARM64"]
         project.append_exclude = ["generated/"]
 
-    This deep-merges the ``platform`` table, replaces scalar values normally,
-    and appends to the existing ``toolchain.defines`` and ``project.exclude``
-    lists.
+    Scalar values are replaced normally and ``toolchain.defines`` /
+    ``project.exclude`` are appended to.  The top-level ``platform`` table is
+    replaced wholesale rather than deep-merged, because ``preset`` and ``xml``
+    are mutually exclusive: a profile's platform fully supersedes the base's.
 
     ``append_<key>`` is permitted only for documented list settings. It raises
     ``ConfigError`` for a non-list or unsupported target. If a supported target
@@ -227,8 +245,11 @@ def _deep_merge(
     prefix = f"profile {profile_name!r}: " if profile_name else ""
     for k, v in patch.items():
         current_path = (*path, k)
-        if k.startswith("append_"):
-            real_key = k[len("append_") :]
+        if path == () and k == "platform":
+            target[k] = v  # xml XOR preset: replace, never merge two selectors.
+            continue
+        real_key, is_append = _strip_append(k)
+        if is_append:
             target_path = (*path, real_key)
             if target_path not in _PROFILE_LIST_FIELDS:
                 raise ConfigError(

@@ -130,11 +130,14 @@ def build_config(p: ScaffoldParams) -> str:
         add('path = "analysis/baseline/misra-baseline.json"')
         add("")
 
-    add("# Multi-platform profiles. Use `misch run --profile <name>` to select.")
-    add("# Scalar values are replaced; lists are replaced by default or extended")
-    add("# with the append_ prefix (e.g. toolchain.append_defines).")
+    add("# Multi-platform profiles overlay the base config. Select one with")
+    add("# `misch run --profile <name>`. Scalars replace; lists replace by default")
+    add("# or extend with the append_ prefix; the [platform] table replaces whole.")
+    add("# Give each ratcheted profile its own baseline.path, since findings differ")
+    add("# between platforms. cppcheck has no arm preset; target Arm with an XML.")
     add("# [profiles.aarch64]")
-    add('# platform.preset = "unix64"')
+    add('# platform.xml = "analysis/aarch64_platform.xml"')
+    add('# baseline.path = "analysis/baseline/misra-baseline.aarch64.json"')
     add('# toolchain.append_defines = ["ARCH_ARM64"]')
     add("")
 

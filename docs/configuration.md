@@ -4,6 +4,22 @@
 
 Relative paths in the configuration are resolved from the directory containing the selected configuration file. This directory is the project root for scope matching, generated analysis artifacts, and report paths.
 
+## At a glance
+
+Every section is optional; sensible defaults apply when one is omitted. See the [complete example](#complete-example) for all of them assembled into one file.
+
+| Section | Keys | Purpose |
+| --- | --- | --- |
+| [`[project]`](#project-analysis-boundary) | `scope`, `exclude` | Which files are in the analysis boundary |
+| [`[db]`](#db-compilation-database) | `source`, `path` | Where `compile_commands.json` comes from |
+| [`[platform]`](#platform-cppcheck-target-model) | `preset` *or* `xml` | The cppcheck target model (word sizes, char sign) |
+| [`[toolchain]`](#toolchain-additional-defines) | `defines` | Extra `-D` definitions passed to cppcheck |
+| [`[rules]`](#rules-optional-licensed-headlines) | `texts` | Optional licensed rule headlines and categories |
+| [`[report]`](#report-default-run-outputs) | `outputs` | Default `misch run` output formats and paths |
+| [`[deviations]`](#deviations-project-suppressions) | `suppressions` | Project-level suppressions file |
+| [`[baseline]`](#baseline-accepted-findings) | `path` | Accepted-findings snapshot for ratchet mode |
+| [`[profiles.<name>]`](#profiles-platform-specific-configuration-overlays) | any of the above | Named overlays for multi-platform projects |
+
 ## Creating a configuration
 
 Create only a documented configuration file:
@@ -83,7 +99,7 @@ Or provide a custom cppcheck platform description:
 xml = "analysis/platform.xml"
 ```
 
-`xml` takes precedence when both values are present. A relative XML path is resolved from the directory containing `misra.toml`. The default platform is `unix64`.
+`preset` and `xml` are mutually exclusive; setting both in one effective configuration is an error. A relative XML path is resolved from the directory containing `misra.toml`. The default platform is `unix64`. cppcheck ships presets such as `unix32`, `unix64`, and `win64`; there is no `arm` preset, so model Arm and other architectures with a platform XML.
 
 ## `[toolchain]`: additional defines
 
@@ -133,62 +149,51 @@ The optional file uses cppcheck's suppressions-list syntax. Each active entry mu
 
 ## `[profiles]`: platform-specific configuration overlays
 
-A single `misra.toml` can define multiple platform profiles. Each profile is a
-TOML table under `[profiles.<name>]` that patches the base configuration.
+A single `misra.toml` can define multiple platform profiles. Each profile is a TOML table under `[profiles.<name>]` that patches the base configuration, so one file replaces the older convention of a separate `misra.<arch>.toml` per target.
 
 ```toml
-# Base configuration (e.g. x86_64)
+# Base configuration (x86_64).
 [platform]
 preset = "unix64"
 
 [toolchain]
 defines = ["ARCH_X86_64"]
 
-# ARM profile: replace preset, append defines
-[profiles.arm]
-platform.preset = "arm"
-toolchain.append_defines = ["ARCH_ARM"]
+[baseline]
+path = "analysis/baseline/misra-baseline.json"
 
-# Another profile: replace defines entirely, append excludes
+# aarch64 profile: swap the platform model and the baseline, share the rest.
 [profiles.aarch64]
-platform.preset = "unix64"
-toolchain.defines = ["ARCH_ARM64"]
-project.append_exclude = ["generated/", "vendor/"]
+platform.xml = "analysis/aarch64_platform.xml"
+baseline.path = "analysis/baseline/misra-baseline.aarch64.json"
+toolchain.append_defines = ["ARCH_ARM64"]
 ```
+
+Select a profile per invocation:
+
+```sh
+misch run --profile aarch64
+misch baseline --profile aarch64
+misch deviations --profile aarch64
+```
+
+Without `--profile`, the base configuration is used unchanged.
 
 **Merge rules:**
 
 - **Scalar values** (strings, numbers, booleans) are replaced.
-- **Nested tables** (e.g., `platform`, `toolchain`) are deep-merged.
-- **Lists** are replaced by default (e.g., `toolchain.defines = [...]`).
-- **Lists with `append_` prefix** are extended instead of replaced (e.g.,
-  `toolchain.append_defines = [...]` appends to the base `defines` list).
-  A supported target that is absent from the base config is created as an empty
-  list before extending.
+- **Nested tables** (for example `toolchain`, `report`) are deep-merged.
+- **The `[platform]` table is replaced wholesale**, not deep-merged, because `preset` and `xml` are mutually exclusive. A profile that sets `platform.preset` or `platform.xml` fully supersedes the base platform. Setting both `preset` and `xml` in one effective config is a configuration error.
+- **Lists** are replaced by default (for example `toolchain.defines = [...]`).
+- **Lists with an `append_` prefix** are extended instead of replaced. `toolchain.append_defines = [...]` appends to the base `toolchain.defines`. A supported target that is absent from the base is created as an empty list first.
 
-The `append_` prefix is stripped before lookup, so `toolchain.append_defines`
-extends `toolchain.defines`, and `project.append_exclude` extends
-`project.exclude`. It is supported only for list settings:
-`project.scope`, `project.exclude`, `toolchain.defines`, and `report.outputs`.
-An unknown target or an existing non-list target is a configuration error.
+The `append_` prefix is stripped before lookup, so `toolchain.append_defines` extends `toolchain.defines` and `project.append_exclude` extends `project.exclude`. It is supported only for the list settings `project.scope`, `project.exclude`, `toolchain.defines`, and `report.outputs`. An unknown target or an existing non-list target is a configuration error.
 
-Profiles are validated before merging. A selected profile must be a TOML table,
-and unknown profile sections or keys are configuration errors that identify the
-profile and invalid setting path. The legacy scalar form `platform = "unix64"`
-remains accepted, but `platform.preset` and `platform.xml` are the recommended
-forms.
+Profiles are validated before merging. A selected profile must be a TOML table, and unknown profile sections or keys are configuration errors that name the profile and the invalid setting path. The legacy scalar form `platform = "unix64"` remains accepted, but `platform.preset` and `platform.xml` are the recommended forms.
 
-**Usage:**
+> **Give each ratcheted profile its own `baseline.path`.** MISRA findings differ between platforms, so profiles must not share one baseline file. A profile that omits `baseline.path` inherits the base path: `misch baseline --profile <name>` then overwrites the base snapshot, and `misch run --profile <name> --baseline` ratchets against findings from the wrong platform. The example above gives each target a distinct baseline.
 
-```sh
-misch run --profile arm
-misch baseline --profile aarch64
-misch deviations --profile arm
-```
-
-Without `--profile`, the base configuration is used as-is. `--profile` selects
-an existing configuration overlay; it does not set a cppcheck preset directly.
-Use `misch init --platform PRESET` when generating a base `[platform]` section.
+`--profile` selects a configuration overlay that already exists in the file; it does not set a cppcheck platform directly. cppcheck ships presets such as `unix32`, `unix64`, and `win64` but has no `arm` preset, so target Arm and other architectures with a platform XML via `platform.xml`. Use `misch init` to generate the base `[platform]` section.
 
 ## `[baseline]`: accepted findings
 
@@ -200,6 +205,45 @@ path = "analysis/baseline/misra-baseline.json"
 The default without this section is `misra-baseline.json` in the project root. `misch baseline` analyses the project and writes the accepted fingerprint counts. `misch run --baseline` continues to report all findings but exits with status 1 only for findings above the accepted counts.
 
 Use `misch baseline --baseline-file PATH` to override the destination for one baseline operation.
+
+## Complete example
+
+A full `misra.toml` for a project with two analysis targets. Every section is shown; a real configuration only needs the sections it uses.
+
+```toml
+[project]
+scope   = ["src/", "include/"]
+exclude = ["tests/", "subprojects/"]
+
+[db]
+source = "meson"                 # meson | cmake | existing
+# path = "build/compile_commands.json"   # existing only
+
+[platform]
+preset = "unix64"                # or: xml = "analysis/x86_64_platform.xml"
+
+[toolchain]
+defines = ["__interrupt="]       # extra -D flags for cppcheck
+
+[rules]
+texts = "${MISRA_RULE_TEXTS}"    # licensed headlines; absent => category unknown
+
+[report]
+outputs = ["terminal", { format = "json", path = "build_analysis/misra.json" }]
+
+[deviations]
+suppressions = "analysis/deviations/misra-deviations.txt"
+
+[baseline]
+path = "analysis/baseline/misra-baseline.json"
+
+# A second analysis target (aarch64, where char is unsigned). Select with
+# `misch run --profile aarch64`. Override only what differs, and give each
+# ratcheted profile its own baseline so the two targets do not share one.
+[profiles.aarch64]
+platform.xml  = "analysis/aarch64_platform.xml"
+baseline.path = "analysis/baseline/misra-baseline.aarch64.json"
+```
 
 ## Exit codes
 
