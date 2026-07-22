@@ -40,8 +40,28 @@ class Config:
 # one with an interceptor such as `bear -- make` and use source = "existing".
 _VALID_DB_SOURCES = {"meson", "cmake", "existing"}
 
+# Profile overlays may patch only the documented configuration fields. Keep this
+# separate from base-config parsing so existing base configuration remains
+# backward-compatible while new profile input gets controlled validation.
+_PROFILE_FIELDS = {
+    "project": {"scope", "exclude"},
+    "db": {"source", "path"},
+    "platform": {"preset", "xml"},
+    "toolchain": {"defines"},
+    "rules": {"texts"},
+    "report": {"outputs"},
+    "baseline": {"path"},
+    "deviations": {"suppressions"},
+}
+_PROFILE_LIST_FIELDS = {
+    ("project", "scope"),
+    ("project", "exclude"),
+    ("toolchain", "defines"),
+    ("report", "outputs"),
+}
 
-def load(config_path: Path) -> Config:
+
+def load(config_path: Path, profile_name: str | None = None) -> Config:
     config_path = config_path.resolve()
     if not config_path.is_file():
         raise ConfigError(f"config not found: {config_path}")
@@ -49,6 +69,21 @@ def load(config_path: Path) -> Config:
 
     with open(config_path, "rb") as fh:
         data = tomllib.load(fh)
+
+    if profile_name:
+        profiles = data.get("profiles", {})
+        if not isinstance(profiles, dict):
+            raise ConfigError("[profiles] must be a TOML table")
+        if profile_name not in profiles:
+            available = ", ".join(sorted(profiles)) or "none"
+            raise ConfigError(
+                f"profile not found: {profile_name!r} (available: {available})"
+            )
+        profile = profiles[profile_name]
+        if not isinstance(profile, dict):
+            raise ConfigError(f"profile {profile_name!r} must be a TOML table")
+        _validate_profile(profile, profile_name)
+        _deep_merge(data, profile, profile_name=profile_name)
 
     project = data.get("project", {})
     db = data.get("db", {})
@@ -65,11 +100,19 @@ def load(config_path: Path) -> Config:
             f"db.source must be one of {sorted(_VALID_DB_SOURCES)}, got {db_source!r}"
         )
 
-    plat = (
-        str(_configured_path(platform["xml"], root, "platform.xml"))
-        if "xml" in platform
-        else platform.get("preset") or "unix64"
-    )
+    # Handle platform as a dict or a string for backward compatibility.
+    # preset and xml are mutually exclusive selectors; reject a config that
+    # sets both rather than silently preferring one.
+    if isinstance(platform, dict):
+        if "xml" in platform and "preset" in platform:
+            raise ConfigError("platform: set either 'preset' or 'xml', not both")
+        plat = (
+            str(_configured_path(platform["xml"], root, "platform.xml"))
+            if "xml" in platform
+            else platform.get("preset") or "unix64"
+        )
+    else:
+        plat = str(platform)
 
     outputs = report.get("outputs") or [{"format": "terminal"}]
     outputs = [_norm_output(o, root) for o in outputs]
@@ -87,6 +130,147 @@ def load(config_path: Path) -> Config:
         baseline_path=_resolve_path(baseline.get("path"), root, "misra-baseline.json"),
         suppressions_path=_optional_path(deviations.get("suppressions"), root),
     )
+
+
+def _strip_append(key: str) -> tuple[str, bool]:
+    """Split an ``append_``-prefixed leaf key into ``(target_key, is_append)``.
+
+    Shared by profile validation and merging so the prefix convention lives in
+    one place.
+    """
+    if key.startswith("append_"):
+        return key[len("append_") :], True
+    return key, False
+
+
+def _validate_profile(profile: dict, profile_name: str) -> None:
+    """Reject profile keys and values outside the supported overlay schema."""
+    for section, values in profile.items():
+        if section not in _PROFILE_FIELDS:
+            path = (
+                f"{section}.{next(iter(values))}"
+                if isinstance(values, dict) and values
+                else section
+            )
+            _profile_error(profile_name, path, "is not a supported setting")
+        if section == "platform" and isinstance(values, str):
+            continue  # Legacy scalar platform form remains supported.
+        if not isinstance(values, dict):
+            _profile_error(profile_name, section, "must be a TOML table")
+
+        for key, value in values.items():
+            actual_key, is_append = _strip_append(key)
+            path = f"{section}.{key}"
+            if actual_key not in _PROFILE_FIELDS[section]:
+                _profile_error(profile_name, path, "is not a supported setting")
+            field = (section, actual_key)
+            if is_append and field not in _PROFILE_LIST_FIELDS:
+                _profile_error(profile_name, path, "can only target a list setting")
+            if not _valid_profile_value(field, value, allow_item=is_append):
+                expected = _profile_value_description(field, allow_item=is_append)
+                _profile_error(profile_name, path, f"must be {expected}")
+
+
+def _valid_profile_value(
+    field: tuple[str, str], value: object, *, allow_item: bool
+) -> bool:
+    if field in _PROFILE_LIST_FIELDS:
+        return _valid_list_value(field, value, allow_item=allow_item)
+    return isinstance(value, str)
+
+
+def _valid_list_value(
+    field: tuple[str, str], value: object, *, allow_item: bool
+) -> bool:
+    values = value if isinstance(value, list) else [value]
+    if not isinstance(value, list) and not allow_item:
+        return False
+    if field == ("report", "outputs"):
+        return all(_valid_report_output(item) for item in values)
+    return all(isinstance(item, str) for item in values)
+
+
+def _valid_report_output(value: object) -> bool:
+    # Mirror _norm_output: a bare format string, or a table carrying a string
+    # "format". Extra keys pass through, as they do in the base [report] parser.
+    if isinstance(value, str):
+        return True
+    if not isinstance(value, dict) or not isinstance(value.get("format"), str):
+        return False
+    return "path" not in value or isinstance(value["path"], str)
+
+
+def _profile_value_description(field: tuple[str, str], *, allow_item: bool) -> str:
+    if field == ("report", "outputs"):
+        return (
+            "a report output or list of report outputs"
+            if allow_item
+            else "a list of report outputs"
+        )
+    if field in _PROFILE_LIST_FIELDS:
+        return "a string or list of strings" if allow_item else "a list of strings"
+    return "a string"
+
+
+def _profile_error(profile_name: str, path: str, message: str) -> None:
+    raise ConfigError(f"profile {profile_name!r}: {path} {message}")
+
+
+def _deep_merge(
+    target: dict,
+    patch: dict,
+    *,
+    profile_name: str | None = None,
+    path: tuple[str, ...] = (),
+) -> None:
+    """Recursively merge *patch* into *target* in-place.
+
+    Supports an ``append_`` prefix on leaf keys to extend lists rather than
+    replace them.  For example, in a profile:
+
+        [profiles.aarch64]
+        platform.xml = "analysis/aarch64_platform.xml"
+        toolchain.append_defines = ["ARCH_ARM64"]
+        project.append_exclude = ["generated/"]
+
+    Scalar values are replaced normally and ``toolchain.defines`` /
+    ``project.exclude`` are appended to.  The top-level ``platform`` table is
+    replaced wholesale rather than deep-merged, because ``preset`` and ``xml``
+    are mutually exclusive: a profile's platform fully supersedes the base's.
+
+    ``append_<key>`` is permitted only for documented list settings. It raises
+    ``ConfigError`` for a non-list or unsupported target. If a supported target
+    is missing from the base, it is auto-initialised as an empty list.
+    """
+    prefix = f"profile {profile_name!r}: " if profile_name else ""
+    for k, v in patch.items():
+        current_path = (*path, k)
+        if path == () and k == "platform":
+            target[k] = v  # xml XOR preset: replace, never merge two selectors.
+            continue
+        real_key, is_append = _strip_append(k)
+        if is_append:
+            target_path = (*path, real_key)
+            if target_path not in _PROFILE_LIST_FIELDS:
+                raise ConfigError(
+                    f"{prefix}{'.'.join(current_path)}: unsupported list target"
+                )
+            if real_key not in target:
+                target[real_key] = []
+            if not isinstance(target[real_key], list):
+                raise ConfigError(
+                    f"{prefix}{'.'.join(current_path)}: key {real_key!r} is not a list"
+                )
+            if isinstance(v, list):
+                target[real_key].extend(v)
+            else:
+                target[real_key].append(v)
+        elif isinstance(v, dict):
+            if k not in target or not isinstance(target[k], dict):
+                target[k] = {}
+            _deep_merge(target[k], v, profile_name=profile_name, path=current_path)
+        else:
+            target[k] = v
 
 
 def _optional_path(configured: str | None, root: Path) -> Path | None:
@@ -123,8 +307,8 @@ def _norm_output(o: object, root: Path) -> dict:
 def _resolve_rule_texts(configured: str | None, root: Path) -> str | None:
     """Precedence: $MISRA_RULE_TEXTS  >  misra.toml [rules].texts.
 
-    Returns an absolute path if a readable file is found, else None (the run
-    still works; findings are tagged category: unknown).
+    Returns an absolute path if a readable file is found, else None (the
+    run still works; findings are tagged category: unknown).
     """
     env = os.environ.get("MISRA_RULE_TEXTS")
     candidates = [env] if env else []

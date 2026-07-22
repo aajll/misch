@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-07-22
+
+### Added
+
+- Added multi-platform configuration profiles. A single `misra.toml` can define `[profiles.<name>]` overlays, selected with `--profile` on `misch run`, `misch baseline`, and `misch deviations`, so a project with several architecture targets no longer needs a separate config file per target. A profile deep-merges nested tables over the base configuration, replaces scalars and lists, and extends the documented list settings (`project.scope`, `project.exclude`, `toolchain.defines`, `report.outputs`) through an `append_` prefix. Profiles are validated against the supported schema before merging, and an unknown profile name reports the available profiles.
+
+### Improved
+
+- Rejected configurations that set both `platform.preset` and `platform.xml`, which are mutually exclusive, instead of silently preferring one. A profile's `[platform]` now replaces the base platform wholesale, so a target can switch between a cppcheck preset and a platform XML.
+
 ## [0.2.0] - 2026-07-17
 
 ### Added

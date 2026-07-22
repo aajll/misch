@@ -85,7 +85,15 @@ preset = "unix64"
 texts = "${MISRA_RULE_TEXTS}"
 ```
 
-See the [Configuration reference](https://github.com/aajll/misch/blob/master/docs/configuration.md) for all sections, path rules, report formats, baselines, deviations, and initialization behavior.
+For a multi-platform project, put platform-specific overrides under a profile and select it for analysis:
+
+```sh
+misch run --profile aarch64
+```
+
+`--profile` selects a configuration overlay that already exists in the file; it does not set a cppcheck platform directly. Give each ratcheted profile its own `baseline.path`, since findings differ between platforms.
+
+See the [Configuration reference](https://github.com/aajll/misch/blob/master/docs/configuration.md) for all sections, including [profile overlays](https://github.com/aajll/misch/blob/master/docs/configuration.md#profiles-platform-specific-configuration-overlays), path rules, report formats, baselines, deviations, and initialization behavior.
 
 ## Scaffold layout
 
