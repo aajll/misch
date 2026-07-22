@@ -707,7 +707,7 @@ project.exclude = ["generated/"]
     config_file.write_text(config_content)
 
     # Test arm profile (replace)
-    cfg = load(config_file, platform_name="arm")
+    cfg = load(config_file, profile_name="arm")
     assert cfg.platform == "arm"
     assert cfg.defines == ["ARM_ONLY"]
     assert cfg.exclude == ["generated/"]
@@ -742,7 +742,7 @@ project.append_exclude = ["generated/"]
     config_file.write_text(config_content)
 
     # Test arm profile (append)
-    cfg = load(config_file, platform_name="arm")
+    cfg = load(config_file, profile_name="arm")
     assert cfg.platform == "arm"
     assert cfg.defines == ["X86", "ARM"]
     assert cfg.exclude == ["tests", "generated/"]
@@ -785,7 +785,7 @@ baseline.path = "analysis/baseline/misra-baseline.aarch64.json"
     assert cfg.scope == ["src/", "include/"]
 
     # Profile config
-    cfg_arm = load(config_file, platform_name="aarch64")
+    cfg_arm = load(config_file, profile_name="aarch64")
     assert cfg_arm.platform == str(tmp_path / "analysis" / "aarch64_platform.xml")
     assert cfg_arm.baseline_path == (
         tmp_path / "analysis" / "baseline" / "misra-baseline.aarch64.json"
@@ -810,7 +810,7 @@ preset = "unix64"
     config_file.write_text(config_content)
 
     cfg_base = load(config_file)
-    cfg_noop = load(config_file, platform_name="noop")
+    cfg_noop = load(config_file, profile_name="noop")
     assert cfg_base.platform == cfg_noop.platform
     assert cfg_base.scope == cfg_noop.scope
 
@@ -843,8 +843,8 @@ toolchain.append_defines = ["X86"]
     config_file.write_text(config_content)
 
     cfg_base = load(config_file)
-    cfg_arm = load(config_file, platform_name="arm")
-    cfg_x86 = load(config_file, platform_name="x86_64")
+    cfg_arm = load(config_file, profile_name="arm")
+    cfg_x86 = load(config_file, profile_name="x86_64")
 
     # Base untouched
     assert cfg_base.platform == "unix64"
@@ -859,9 +859,9 @@ toolchain.append_defines = ["X86"]
     assert cfg_x86.defines == ["BASE", "X86"]
 
 
-def test_append_missing_target_errors(tmp_path: Path):
-    """append_ on a key that doesn't exist in the base raises ConfigError."""
-    from misch.config import ConfigError, load
+def test_append_auto_initializes_missing_key(tmp_path: Path):
+    """append_ on a key that doesn't exist in the base auto-initializes it as []."""
+    from misch.config import load
 
     config_content = """
 [project]
@@ -876,8 +876,8 @@ toolchain.append_defines = ["ARM"]
     config_file = tmp_path / "misra.toml"
     config_file.write_text(config_content)
 
-    with pytest.raises(ConfigError, match="append_defines"):
-        load(config_file, platform_name="arm")
+    cfg = load(config_file, profile_name="arm")
+    assert cfg.defines == ["ARM"]
 
 
 def test_append_non_list_target_errors(tmp_path: Path):
@@ -901,7 +901,31 @@ toolchain.append_defines = ["ARM"]
     config_file.write_text(config_content)
 
     with pytest.raises(ConfigError, match="append_defines"):
-        load(config_file, platform_name="arm")
+        load(config_file, profile_name="arm")
+
+
+def test_append_unknown_target_errors(tmp_path: Path):
+    """append_ rejects misspelled list settings instead of creating dead data."""
+    from misch.config import ConfigError, load
+
+    config_content = """
+[project]
+scope = ["src"]
+
+[toolchain]
+defines = ["BASE"]
+
+[profiles.arm]
+toolchain.append_defiens = ["ARM"]
+"""
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(config_content)
+
+    with pytest.raises(
+        ConfigError,
+        match="profile 'arm': toolchain\\.append_defiens is not a supported setting",
+    ):
+        load(config_file, profile_name="arm")
 
 
 def test_load_nonexistent_profile(tmp_path: Path):
@@ -914,5 +938,102 @@ scope = ["src"]
     config_file = tmp_path / "misra.toml"
     config_file.write_text(config_content)
 
-    with pytest.raises(ConfigError, match="platform profile not found: unknown"):
-        load(config_file, platform_name="unknown")
+    with pytest.raises(ConfigError, match="profile not found: unknown"):
+        load(config_file, profile_name="unknown")
+
+
+def test_append_scalar_value(tmp_path: Path):
+    """append_ with a scalar (non-list) value appends that single item."""
+    from misch.config import load
+
+    config_content = """
+[project]
+scope = ["src"]
+
+[platform]
+preset = "unix64"
+
+[toolchain]
+defines = ["BASE"]
+
+[profiles.arm]
+toolchain.append_defines = "SINGLE"
+"""
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(config_content)
+
+    cfg = load(config_file, profile_name="arm")
+    assert cfg.defines == ["BASE", "SINGLE"]
+
+
+def test_profile_accepts_legacy_scalar_platform(tmp_path: Path):
+    """Profiles retain the legacy scalar platform representation."""
+    from misch.config import load
+
+    config_content = """
+[project]
+scope = ["src"]
+
+[platform]
+preset = "unix64"
+
+[profiles.arm]
+platform = "native"
+"""
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(config_content)
+
+    cfg = load(config_file, profile_name="arm")
+    assert cfg.platform == "native"
+
+
+@pytest.mark.parametrize(
+    ("config_content", "message"),
+    [
+        (
+            'profiles = "not-a-table"\n',
+            r"\[profiles\] must be a TOML table",
+        ),
+        (
+            '[profiles]\narm = "not-a-table"\n',
+            r"profile 'arm' must be a TOML table",
+        ),
+    ],
+)
+def test_malformed_profiles_raise_config_error(
+    tmp_path: Path, config_content: str, message: str
+):
+    from misch.config import ConfigError, load
+
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(config_content)
+
+    with pytest.raises(ConfigError, match=message):
+        load(config_file, profile_name="arm")
+
+
+@pytest.mark.parametrize(
+    ("profile_content", "message"),
+    [
+        (
+            'platfrom.preset = "arm"',
+            r"profile 'arm': platfrom\.preset is not a supported setting",
+        ),
+        (
+            'toolchain.defiens = ["ARM"]',
+            r"profile 'arm': toolchain\.defiens is not a supported setting",
+        ),
+    ],
+)
+def test_unknown_profile_settings_raise_config_error(
+    tmp_path: Path, profile_content: str, message: str
+):
+    from misch.config import ConfigError, load
+
+    config_file = tmp_path / "misra.toml"
+    config_file.write_text(
+        f'[project]\nscope = ["src"]\n\n[profiles.arm]\n{profile_content}\n'
+    )
+
+    with pytest.raises(ConfigError, match=message):
+        load(config_file, profile_name="arm")

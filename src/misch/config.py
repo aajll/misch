@@ -40,8 +40,28 @@ class Config:
 # one with an interceptor such as `bear -- make` and use source = "existing".
 _VALID_DB_SOURCES = {"meson", "cmake", "existing"}
 
+# Profile overlays may patch only the documented configuration fields. Keep this
+# separate from base-config parsing so existing base configuration remains
+# backward-compatible while new profile input gets controlled validation.
+_PROFILE_FIELDS = {
+    "project": {"scope", "exclude"},
+    "db": {"source", "path"},
+    "platform": {"preset", "xml"},
+    "toolchain": {"defines"},
+    "rules": {"texts"},
+    "report": {"outputs"},
+    "baseline": {"path"},
+    "deviations": {"suppressions"},
+}
+_PROFILE_LIST_FIELDS = {
+    ("project", "scope"),
+    ("project", "exclude"),
+    ("toolchain", "defines"),
+    ("report", "outputs"),
+}
 
-def load(config_path: Path, platform_name: str | None = None) -> Config:
+
+def load(config_path: Path, profile_name: str | None = None) -> Config:
     config_path = config_path.resolve()
     if not config_path.is_file():
         raise ConfigError(f"config not found: {config_path}")
@@ -50,11 +70,17 @@ def load(config_path: Path, platform_name: str | None = None) -> Config:
     with open(config_path, "rb") as fh:
         data = tomllib.load(fh)
 
-    if platform_name:
+    if profile_name:
         profiles = data.get("profiles", {})
-        if platform_name not in profiles:
-            raise ConfigError(f"platform profile not found: {platform_name}")
-        _deep_merge(data, profiles[platform_name], profile_name=platform_name)
+        if not isinstance(profiles, dict):
+            raise ConfigError("[profiles] must be a TOML table")
+        if profile_name not in profiles:
+            raise ConfigError(f"profile not found: {profile_name}")
+        profile = profiles[profile_name]
+        if not isinstance(profile, dict):
+            raise ConfigError(f"profile {profile_name!r} must be a TOML table")
+        _validate_profile(profile, profile_name)
+        _deep_merge(data, profile, profile_name=profile_name)
 
     project = data.get("project", {})
     db = data.get("db", {})
@@ -99,7 +125,87 @@ def load(config_path: Path, platform_name: str | None = None) -> Config:
     )
 
 
-def _deep_merge(target: dict, patch: dict, *, profile_name: str | None = None) -> None:
+def _validate_profile(profile: dict, profile_name: str) -> None:
+    """Reject profile keys and values outside the supported overlay schema."""
+    for section, values in profile.items():
+        if section not in _PROFILE_FIELDS:
+            path = (
+                f"{section}.{next(iter(values))}"
+                if isinstance(values, dict) and values
+                else section
+            )
+            _profile_error(profile_name, path, "is not a supported setting")
+        if section == "platform" and isinstance(values, str):
+            continue  # Legacy scalar platform form remains supported.
+        if not isinstance(values, dict):
+            _profile_error(profile_name, section, "must be a TOML table")
+
+        for key, value in values.items():
+            is_append = key.startswith("append_")
+            actual_key = key[len("append_") :] if is_append else key
+            path = f"{section}.{key}"
+            if actual_key not in _PROFILE_FIELDS[section]:
+                _profile_error(profile_name, path, "is not a supported setting")
+            field = (section, actual_key)
+            if is_append and field not in _PROFILE_LIST_FIELDS:
+                _profile_error(profile_name, path, "can only target a list setting")
+            if not _valid_profile_value(field, value, allow_item=is_append):
+                expected = _profile_value_description(field, allow_item=is_append)
+                _profile_error(profile_name, path, f"must be {expected}")
+
+
+def _valid_profile_value(
+    field: tuple[str, str], value: object, *, allow_item: bool
+) -> bool:
+    if field in _PROFILE_LIST_FIELDS:
+        return _valid_list_value(field, value, allow_item=allow_item)
+    return isinstance(value, str)
+
+
+def _valid_list_value(
+    field: tuple[str, str], value: object, *, allow_item: bool
+) -> bool:
+    values = value if isinstance(value, list) else [value]
+    if not isinstance(value, list) and not allow_item:
+        return False
+    if field == ("report", "outputs"):
+        return all(_valid_report_output(item) for item in values)
+    return all(isinstance(item, str) for item in values)
+
+
+def _valid_report_output(value: object) -> bool:
+    if isinstance(value, str):
+        return True
+    if not isinstance(value, dict) or set(value) - {"format", "path"}:
+        return False
+    if not isinstance(value.get("format"), str):
+        return False
+    return "path" not in value or isinstance(value["path"], str)
+
+
+def _profile_value_description(field: tuple[str, str], *, allow_item: bool) -> str:
+    if field == ("report", "outputs"):
+        return (
+            "a report output or list of report outputs"
+            if allow_item
+            else "a list of report outputs"
+        )
+    if field in _PROFILE_LIST_FIELDS:
+        return "a string or list of strings" if allow_item else "a list of strings"
+    return "a string"
+
+
+def _profile_error(profile_name: str, path: str, message: str) -> None:
+    raise ConfigError(f"profile {profile_name!r}: {path} {message}")
+
+
+def _deep_merge(
+    target: dict,
+    patch: dict,
+    *,
+    profile_name: str | None = None,
+    path: tuple[str, ...] = (),
+) -> None:
     """Recursively merge *patch* into *target* in-place.
 
     Supports an ``append_`` prefix on leaf keys to extend lists rather than
@@ -114,19 +220,26 @@ def _deep_merge(target: dict, patch: dict, *, profile_name: str | None = None) -
     and appends to the existing ``toolchain.defines`` and ``project.exclude``
     lists.
 
-    Raises ``ConfigError`` if ``append_<key>`` references a missing or
-    non-list target.
+    ``append_<key>`` is permitted only for documented list settings. It raises
+    ``ConfigError`` for a non-list or unsupported target. If a supported target
+    is missing from the base, it is auto-initialised as an empty list.
     """
     prefix = f"profile {profile_name!r}: " if profile_name else ""
     for k, v in patch.items():
+        current_path = (*path, k)
         if k.startswith("append_"):
             real_key = k[len("append_") :]
-            if real_key not in target:
+            target_path = (*path, real_key)
+            if target_path not in _PROFILE_LIST_FIELDS:
                 raise ConfigError(
-                    f"{prefix}{k}: key {real_key!r} not found in base config"
+                    f"{prefix}{'.'.join(current_path)}: unsupported list target"
                 )
+            if real_key not in target:
+                target[real_key] = []
             if not isinstance(target[real_key], list):
-                raise ConfigError(f"{prefix}{k}: key {real_key!r} is not a list")
+                raise ConfigError(
+                    f"{prefix}{'.'.join(current_path)}: key {real_key!r} is not a list"
+                )
             if isinstance(v, list):
                 target[real_key].extend(v)
             else:
@@ -134,7 +247,7 @@ def _deep_merge(target: dict, patch: dict, *, profile_name: str | None = None) -
         elif isinstance(v, dict):
             if k not in target or not isinstance(target[k], dict):
                 target[k] = {}
-            _deep_merge(target[k], v, profile_name=profile_name)
+            _deep_merge(target[k], v, profile_name=profile_name, path=current_path)
         else:
             target[k] = v
 

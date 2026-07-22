@@ -163,20 +163,32 @@ project.append_exclude = ["generated/", "vendor/"]
 - **Lists** are replaced by default (e.g., `toolchain.defines = [...]`).
 - **Lists with `append_` prefix** are extended instead of replaced (e.g.,
   `toolchain.append_defines = [...]` appends to the base `defines` list).
+  A supported target that is absent from the base config is created as an empty
+  list before extending.
 
 The `append_` prefix is stripped before lookup, so `toolchain.append_defines`
 extends `toolchain.defines`, and `project.append_exclude` extends
-`project.exclude`.
+`project.exclude`. It is supported only for list settings:
+`project.scope`, `project.exclude`, `toolchain.defines`, and `report.outputs`.
+An unknown target or an existing non-list target is a configuration error.
+
+Profiles are validated before merging. A selected profile must be a TOML table,
+and unknown profile sections or keys are configuration errors that identify the
+profile and invalid setting path. The legacy scalar form `platform = "unix64"`
+remains accepted, but `platform.preset` and `platform.xml` are the recommended
+forms.
 
 **Usage:**
 
 ```sh
-misch run --platform arm
-misch baseline --platform aarch64
-misch deviations --platform arm
+misch run --profile arm
+misch baseline --profile aarch64
+misch deviations --profile arm
 ```
 
-Without `--platform`, the base configuration is used as-is.
+Without `--profile`, the base configuration is used as-is. `--profile` selects
+an existing configuration overlay; it does not set a cppcheck preset directly.
+Use `misch init --platform PRESET` when generating a base `[platform]` section.
 
 ## `[baseline]`: accepted findings
 

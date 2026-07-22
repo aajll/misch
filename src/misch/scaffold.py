@@ -130,11 +130,11 @@ def build_config(p: ScaffoldParams) -> str:
         add('path = "analysis/baseline/misra-baseline.json"')
         add("")
 
-    add("# Multi-platform profiles. Use `misch run --platform <name>` to select.")
+    add("# Multi-platform profiles. Use `misch run --profile <name>` to select.")
     add("# Scalar values are replaced; lists are replaced by default or extended")
     add("# with the append_ prefix (e.g. toolchain.append_defines).")
     add("# [profiles.aarch64]")
-    add('# platform.preset = "arm"')
+    add('# platform.preset = "unix64"')
     add('# toolchain.append_defines = ["ARCH_ARM64"]')
     add("")
 

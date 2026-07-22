@@ -93,6 +93,54 @@ def test_e2e_run_detects_violation(tmp_path: Path):
     assert doc["summary"]["misra_findings"] >= 1
 
 
+def test_e2e_profile_flag_applies_preprocessor_configuration(tmp_path: Path):
+    """A selected profile changes cppcheck's active preprocessor branch."""
+    cfg = _write_project(tmp_path)
+    source = tmp_path / "src" / "sample.c"
+    source.write_text(
+        "#ifdef ARM_DEFINE\n"
+        "static unsigned int pick(unsigned int x)\n"
+        "{\n"
+        "    if (x > 10u) {\n"
+        "        return 1u;\n"
+        "    }\n"
+        "    return 0u;\n"
+        "}\n"
+        "#else\n"
+        "static unsigned int pick(unsigned int x)\n"
+        "{\n"
+        "    return x;\n"
+        "}\n"
+        "#endif\n"
+    )
+    cfg.write_text(
+        cfg.read_text() + "\n[profiles.arm]\n" + 'toolchain.defines = ["ARM_DEFINE"]\n'
+    )
+
+    base = _run_json(cfg, tmp_path / "base.json")
+    assert base["rc"] == 0
+    assert base["doc"]["summary"]["misra_findings"] == 0
+
+    profile_out = tmp_path / "arm.json"
+    profile_rc = main(
+        [
+            "run",
+            "-c",
+            str(cfg),
+            "--profile",
+            "arm",
+            "--format",
+            "json",
+            "--output",
+            str(profile_out),
+        ]
+    )
+    assert profile_rc == 1
+    profile_doc = json.loads(profile_out.read_text())
+    profile_ids = {finding["rule_id"] for finding in profile_doc["findings"]}
+    assert "misra-c2012-15.5" in profile_ids
+
+
 def test_e2e_unattributed_header_findings_are_a_hard_error(tmp_path: Path, capsys):
     """A header pulled in from a scoped source, living in a directory that is
     neither scoped nor excluded, must fail the run — not silently vanish."""
