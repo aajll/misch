@@ -36,7 +36,7 @@ misch run --baseline   # report everything; exit 1 only for new findings
 misch deviations       # validate suppressions and their justifications
 ```
 
-Use `misch init` without `--scaffold` when only a configuration file is wanted. Review the generated scope, exclusions, and compilation-database source before the first run.
+Use `misch init` without `--scaffold` when only a configuration file is wanted. With no `--db` option, initialization detects one root-level Meson, CMake, or existing compilation-database candidate; it fails without writing if the choice is absent or ambiguous. Use `--db` (and `--db-path` for an existing database) to choose explicitly. Review the generated scope, exclusions, and compilation-database source before the first run.
 
 Rule headlines and Mandatory, Required, or Advisory categories are optional. Supply them from a licensed MISRA document through a cppcheck-format file:
 
@@ -46,14 +46,16 @@ export MISRA_RULE_TEXTS=/secure/path/misra-headlines.txt
 
 Analysis still runs without that file and labels categories as `unknown`. See [Rule texts](https://github.com/aajll/misch/blob/master/docs/rule-texts.md) for format and licensing guidance.
 
+By default, terminal output shows a rule table and summary. Add `-v`/`--verbose` to also print cppcheck's per-location diagnostics (colour-coded by severity) above the table.
+
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
 | `misch init` | Generate a documented `misra.toml`; add `--scaffold` for the recommended analysis asset tree. |
-| `misch run` | Analyse and render terminal, JSON, or SARIF results. Add `--baseline` to fail only on findings above accepted counts. |
-| `misch baseline` | Analyse and store the current finding counts as the accepted baseline. |
-| `misch deviations` | Validate inline and project suppressions; optionally emit a Markdown deviation record or check staleness. |
+| `misch run` | Analyse and render terminal, JSON, or SARIF results. Add `-v`/`--verbose` for a per-location cppcheck diagnostics listing. Add `--baseline` to fail only on findings above accepted counts. Use `--profile <name>` to select a platform overlay. |
+| `misch baseline` | Analyse and store the current finding counts as the accepted baseline. Use `--profile <name>` to select a platform overlay. |
+| `misch deviations` | Validate inline and project suppressions; optionally emit a Markdown deviation record or check staleness. Use `--profile <name>` to select a platform overlay. |
 
 Run `misch COMMAND --help` for command options.
 

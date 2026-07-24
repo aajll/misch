@@ -14,6 +14,7 @@ from rich_argparse import RichHelpFormatter
 from . import __version__
 from . import db as dbmod
 from .config import ConfigError, load
+from .config_schema import INIT_DEFAULTS
 from .engine import cppcheck
 from .engine.cppcheck import EngineError
 from .report.baseline import diff as bl_diff
@@ -37,8 +38,10 @@ from .report.renderers import (
 )
 from .scaffold import (
     ScaffoldConflict,
+    ScaffoldDbDetectionError,
     ScaffoldParams,
     ScaffoldPathError,
+    detect_db_source,
     write_project_files,
 )
 
@@ -133,10 +136,9 @@ def _add_init_parser(add_parser) -> None:
     p.add_argument(
         "--db",
         choices=["meson", "cmake", "existing"],
-        default="meson",
-        help="compile-DB source (default: meson)",
+        help="compile-DB source (default: detect one root-level candidate)",
     )
-    p.add_argument("--db-path", help="compile_commands.json path (for --db existing)")
+    p.add_argument("--db-path", help="compile_commands.json path (selects existing)")
     p.add_argument(
         "--scope",
         action="append",
@@ -151,11 +153,15 @@ def _add_init_parser(add_parser) -> None:
         metavar="GLOB",
         help="excluded path (repeatable; default: tests/, subprojects/)",
     )
-    p.add_argument("--platform", default="unix64", help="cppcheck platform preset")
+    p.add_argument(
+        "--platform", default=INIT_DEFAULTS.platform, help="cppcheck platform preset"
+    )
     p.add_argument(
         "--platform-xml", help="custom cppcheck platform XML (overrides --platform)"
     )
-    p.add_argument("--rule-texts", default="${MISRA_RULE_TEXTS}", help="headlines path")
+    p.add_argument(
+        "--rule-texts", default=INIT_DEFAULTS.rule_texts, help="headlines path"
+    )
     p.add_argument(
         "--define",
         action="append",
@@ -349,11 +355,23 @@ def _emit(cfg, report: Report, coverage, args: argparse.Namespace) -> None:
 
 def _cmd_init(args: argparse.Namespace) -> int:
     out: Path = args.output
+    try:
+        if args.db:
+            db_source, db_path = args.db, args.db_path
+        elif args.db_path:
+            db_source, db_path = "existing", args.db_path
+        else:
+            db_source, db_path = detect_db_source(out.parent)
+    except ScaffoldDbDetectionError as exc:
+        choices = "--db meson, --db cmake, or --db existing"
+        _err.print(f"[red]init error:[/] {exc}; pass {choices}.")
+        return 2
+
     params = ScaffoldParams(
-        scope=args.scope or ["src/"],
-        exclude=args.exclude or ["tests/", "subprojects/"],
-        db_source=args.db,
-        db_path=args.db_path,
+        scope=args.scope or list(INIT_DEFAULTS.scope),
+        exclude=args.exclude or list(INIT_DEFAULTS.exclude),
+        db_source=db_source,
+        db_path=db_path,
         platform_preset=args.platform,
         platform_xml=args.platform_xml,
         rule_texts=args.rule_texts,
