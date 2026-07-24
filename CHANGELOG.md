@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Improved
+
+- Made `-v`/`--verbose` on `misch run` print cppcheck's own (non-MISRA) diagnostics as a per-location listing, colour-coded by severity, including when there are no MISRA findings at all. Previously these diagnostics only surfaced as a count pointing at the JSON output; the non-verbose note now points at `-v`/`--verbose` instead.
+- Moved the per-rule MISRA table below the verbose per-location listings, so the table and the closing summary sit together at the end of the output instead of scrolling away on large verbose reports.
+
 ## [0.3.0] - 2026-07-22
 
 ### Added

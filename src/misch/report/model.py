@@ -90,5 +90,9 @@ class Report:
     def misra(self) -> list[Finding]:
         return [f for f in self.findings if f.is_misra]
 
+    def cppcheck(self) -> list[Finding]:
+        """Return findings from cppcheck's own checks (non-MISRA)."""
+        return [f for f in self.findings if f.source is Source.CPPCHECK]
+
     def sorted(self) -> list[Finding]:
         return sorted(self.findings, key=Finding.sort_key)
