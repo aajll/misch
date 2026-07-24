@@ -9,7 +9,7 @@ import pytest
 from misch import __version__
 from misch.cli import main
 from misch.config import Config, ConfigError, load
-from misch.db import DbError, _matches_any, classify_files, in_scope, resolve_compile_db
+from misch.db import DbError, classify_files, resolve_compile_db
 from misch.report.baseline import BaselineDiff
 from misch.report.dev_render import render_markdown
 from misch.report.deviations import Deviation, DeviationRecord
@@ -55,14 +55,6 @@ def test_is_misra_id():
     assert is_misra_id("misra-c2012-dir-4.9")
     assert not is_misra_id("nullPointer")
     assert not is_misra_id("unusedFunction")
-
-
-def test_scope_matching_directory_and_glob():
-    assert _matches_any("src/a.c", ["src/"])
-    assert _matches_any("src/sub/a.c", ["src/"])
-    assert not _matches_any("srcextra/a.c", ["src/"])  # prefix must be a boundary
-    assert _matches_any("x/gen.h", ["*.h"])
-    assert not _matches_any("x/gen.c", ["*.h"])
 
 
 def test_headlines_parser_tab_category_next_line_title(tmp_path: Path):
@@ -377,11 +369,18 @@ def _cfg(tmp_path: Path, scope, exclude) -> Config:
     return c
 
 
-def test_in_scope_exclude_wins(tmp_path: Path):
-    c = _cfg(tmp_path, scope=["src/"], exclude=["src/generated/"])
-    assert in_scope(c, "src/a.c")
-    assert not in_scope(c, "src/generated/tbl.c")
-    assert not in_scope(c, "tests/t.c")  # not in scope
+def test_discover_sources_walks_scope_without_a_compile_db(tmp_path: Path):
+    """The deviation adapter finds in-scope sources with no build configured."""
+    from misch.report.deviations import discover_sources
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "vendor").mkdir()
+    (tmp_path / "src" / "a.c").write_text("")
+    (tmp_path / "src" / "notes.md").write_text("")  # not a source
+    (tmp_path / "vendor" / "lib.c").write_text("")  # excluded
+
+    c = _cfg(tmp_path, scope=["src/"], exclude=["vendor/"])
+    assert [p.name for p in discover_sources(c)] == ["a.c"]
 
 
 def test_partition_findings_surfaces_unattributed_locations(tmp_path: Path):
@@ -399,6 +398,22 @@ def test_partition_findings_surfaces_unattributed_locations(tmp_path: Path):
     kept, unattributed = partition_findings(c, [scoped, excluded, header, system])
     assert kept == [scoped]
     assert unattributed == [header]
+
+
+def test_partition_findings_empty_scope_keeps_external(tmp_path: Path):
+    """With no scope configured, audit everything: a non-excluded finding is
+    kept even at an outside-tree absolute path. Only a configured scope that
+    fails to match drops system/toolchain locations silently."""
+    from misch.db import partition_findings
+
+    c = _cfg(tmp_path, scope=[], exclude=["vendor/"])
+    in_tree = _finding(file="src/a.c")
+    excluded = _finding(file="vendor/lib.c")
+    system = _finding(file="/usr/include/string.h")
+
+    kept, unattributed = partition_findings(c, [in_tree, excluded, system])
+    assert kept == [in_tree, system]
+    assert unattributed == []
 
 
 def test_scaffold_documents_deviations_and_round_trips(tmp_path: Path):

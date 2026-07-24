@@ -8,7 +8,6 @@ every file it references as analysed / excluded / unattributed.
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import shutil
 import subprocess
@@ -16,6 +15,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import Config
+from ..scope_policy import (
+    ScopeClass,
+    classify,
+    classify_one,
+    is_external,
+    to_project_rel,
+)
 
 
 class DbError(Exception):
@@ -114,46 +120,13 @@ def classify_files(cfg: Config, db_path: Path) -> ScopeCoverage:
     error so nothing is ever silently ignored.
     """
     entries = json.loads(db_path.read_text())
-    files = sorted({_rel(cfg.project_root, e["file"]) for e in entries})
-
-    analysed, excluded, unattributed = [], [], []
-    for f in files:
-        if _matches_any(f, cfg.exclude):
-            excluded.append(f)
-        elif not cfg.scope or _matches_any(f, cfg.scope):
-            analysed.append(f)
-        else:
-            unattributed.append(f)
-    return ScopeCoverage(analysed, excluded, unattributed)
-
-
-def _rel(root: Path, file: str) -> str:
-    p = Path(file)
-    try:
-        return p.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return p.as_posix()  # outside the tree (system/toolchain header)
-
-
-def _matches_any(path: str, globs: list[str]) -> bool:
-    for g in globs:
-        g = g.strip()
-        if not g:
-            continue
-        base = g.rstrip("/")
-        # Directory-style pattern: match anything beneath it.
-        if path == base or path.startswith(base + "/"):
-            return True
-        if fnmatch.fnmatch(path, g):
-            return True
-    return False
-
-
-def in_scope(cfg: Config, path: str) -> bool:
-    """True if a finding at `path` should be reported (in scope, not excluded)."""
-    if _matches_any(path, cfg.exclude):
-        return False
-    return not cfg.scope or _matches_any(path, cfg.scope)
+    files = sorted({to_project_rel(cfg.project_root, e["file"]) for e in entries})
+    buckets = classify(files, cfg.scope, cfg.exclude)
+    return ScopeCoverage(
+        analysed=buckets[ScopeClass.IN_SCOPE],
+        excluded=buckets[ScopeClass.EXCLUDED],
+        unattributed=buckets[ScopeClass.UNATTRIBUTED],
+    )
 
 
 def partition_findings(cfg: Config, findings: list) -> tuple[list, list]:
@@ -164,15 +137,21 @@ def partition_findings(cfg: Config, findings: list) -> tuple[list, list]:
     findings at their locations. A finding inside the project tree whose path
     matches neither `scope` nor `exclude` is therefore unclassified audit
     territory and must be surfaced, not silently dropped. Findings at
-    explicitly excluded paths and outside the tree (system/toolchain headers;
-    `_rel` leaves those absolute) are dropped silently by design.
+    explicitly excluded paths are dropped silently, as are findings outside
+    the tree (system/toolchain headers, reported at absolute paths) that fall
+    outside a configured scope; with an empty scope every non-excluded finding
+    is kept.
     """
     kept, unattributed = [], []
     for f in findings:
         if not f.file:
             continue
-        if in_scope(cfg, f.file):
+        cls = classify_one(f.file, cfg.scope, cfg.exclude)
+        if cls is ScopeClass.IN_SCOPE:
             kept.append(f)
-        elif not Path(f.file).is_absolute() and not _matches_any(f.file, cfg.exclude):
+        elif cls is ScopeClass.UNATTRIBUTED and not is_external(
+            cfg.project_root, f.file
+        ):
             unattributed.append(f)
+        # else: excluded, or unattributed outside the tree; dropped silently.
     return kept, unattributed

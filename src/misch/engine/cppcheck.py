@@ -16,6 +16,7 @@ from pathlib import Path
 from ..config import Config
 from ..report.headlines import RuleInfo
 from ..report.model import Category, Finding, Source, is_misra_id
+from ..scope_policy import to_project_rel
 
 # cppcheck's own checks that add noise without bearing on MISRA scope. Kept
 # minimal and overridable; the deviation machinery manages the rest.
@@ -115,7 +116,7 @@ def _parse_xml(
         loc = err.find("location")
         if loc is None:
             continue  # non-located info (toolchain notes, etc.)
-        file_rel = _rel(root, loc.get("file", ""))
+        file_rel = to_project_rel(root, loc.get("file", ""))
         misra = is_misra_id(rule_id)
         info = rules.get(rule_id.lower())
         # cppcheck emits the symbol name as a <symbol> child element (and, on
@@ -137,13 +138,3 @@ def _parse_xml(
             )
         )
     return findings
-
-
-def _rel(root: Path, file: str) -> str:
-    if not file:
-        return ""
-    p = Path(file)
-    try:
-        return p.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return p.as_posix()
