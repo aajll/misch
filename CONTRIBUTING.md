@@ -23,7 +23,8 @@ A compilation database separates build-system concerns from analysis. cppcheck X
 - `src/misch/cli.py`: command-line parsing and command handlers.
 - `src/misch/config_schema.py`: authoritative configuration schema — profile field policy, value validation, runtime vs init-template defaults.
 - `src/misch/config.py`: configuration loading, validation, and path resolution (consumes `config_schema`).
-- `src/misch/db/`: compilation-database resolution, normalization, and scope classification.
+- `src/misch/scope_policy.py`: project-scope matching, classification, and source selection — shared by compile-DB, finding, and deviation adapters.
+- `src/misch/db/`: compilation-database resolution, normalization (delegates scope classification to `scope_policy`).
 - `src/misch/engine/cppcheck.py`: cppcheck invocation and XML parsing.
 - `src/misch/report/`: finding, baseline, deviation, and rendering models.
 - `src/misch/scaffold.py`: initialization planning and template loading.

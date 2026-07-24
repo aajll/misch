@@ -9,13 +9,14 @@ import pytest
 from misch import __version__
 from misch.cli import main
 from misch.config import Config, ConfigError, load
-from misch.db import DbError, _matches_any, classify_files, in_scope, resolve_compile_db
+from misch.db import DbError, classify_files, resolve_compile_db
 from misch.report.baseline import BaselineDiff
 from misch.report.dev_render import render_markdown
 from misch.report.deviations import Deviation, DeviationRecord
 from misch.report.headlines import load_headlines
 from misch.report.model import Category, Finding, is_misra_id
 from misch.report.renderers import render_baseline_summary
+from misch.scope_policy import ScopeClass, classify
 
 
 def _finding(**kw) -> Finding:
@@ -58,11 +59,16 @@ def test_is_misra_id():
 
 
 def test_scope_matching_directory_and_glob():
-    assert _matches_any("src/a.c", ["src/"])
-    assert _matches_any("src/sub/a.c", ["src/"])
-    assert not _matches_any("srcextra/a.c", ["src/"])  # prefix must be a boundary
-    assert _matches_any("x/gen.h", ["*.h"])
-    assert not _matches_any("x/gen.c", ["*.h"])
+    """Verify glob matching semantics through the public classify interface."""
+    # Directory-style: src/ matches beneath it, not prefix match.
+    buckets = classify(["src/a.c", "src/sub/a.c", "srcextra/a.c"], ["src/"], [])
+    assert set(buckets[ScopeClass.IN_SCOPE]) == {"src/a.c", "src/sub/a.c"}
+    assert "srcextra/a.c" in buckets[ScopeClass.UNATTRIBUTED]
+
+    # fnmatch glob.
+    buckets = classify(["x/gen.h", "x/gen.c"], ["*.h"], [])
+    assert set(buckets[ScopeClass.IN_SCOPE]) == {"x/gen.h"}
+    assert "x/gen.c" in buckets[ScopeClass.UNATTRIBUTED]
 
 
 def test_headlines_parser_tab_category_next_line_title(tmp_path: Path):
@@ -379,9 +385,12 @@ def _cfg(tmp_path: Path, scope, exclude) -> Config:
 
 def test_in_scope_exclude_wins(tmp_path: Path):
     c = _cfg(tmp_path, scope=["src/"], exclude=["src/generated/"])
-    assert in_scope(c, "src/a.c")
-    assert not in_scope(c, "src/generated/tbl.c")
-    assert not in_scope(c, "tests/t.c")  # not in scope
+    buckets = classify(
+        ["src/a.c", "src/generated/tbl.c", "tests/t.c"], c.scope, c.exclude
+    )
+    assert set(buckets[ScopeClass.IN_SCOPE]) == {"src/a.c"}
+    assert set(buckets[ScopeClass.EXCLUDED]) == {"src/generated/tbl.c"}
+    assert set(buckets[ScopeClass.UNATTRIBUTED]) == {"tests/t.c"}
 
 
 def test_partition_findings_surfaces_unattributed_locations(tmp_path: Path):

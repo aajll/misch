@@ -136,9 +136,7 @@ def _print_summary(console: Console, misra: list[Finding]) -> None:
     console.print(f"\n[bold]{len(misra)} MISRA finding(s):[/] " + "  ".join(parts))
 
 
-def _maybe_cppcheck_note(
-    console: Console, report: Report, *, verbose: bool
-) -> None:
+def _maybe_cppcheck_note(console: Console, report: Report, *, verbose: bool) -> None:
     n = sum(1 for f in report.findings if f.source is Source.CPPCHECK)
     if n:
         if verbose:

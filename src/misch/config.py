@@ -47,7 +47,6 @@ class Config:
         self.build_dir = self.project_root / "build_analysis"
 
 
-
 def load(config_path: Path, profile_name: str | None = None) -> Config:
     config_path = config_path.resolve()
     if not config_path.is_file():
@@ -145,7 +144,6 @@ def _validate_profile(profile: dict, profile_name: str) -> None:
             if not valid_profile_value(field, value, append=is_append):
                 expected = profile_value_description(field, append=is_append)
                 _profile_error(profile_name, path, f"must be {expected}")
-
 
 
 def _profile_error(profile_name: str, path: str, message: str) -> None:

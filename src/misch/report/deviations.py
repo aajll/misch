@@ -164,23 +164,9 @@ def discover_sources(cfg) -> list[Path]:
     Uses the same scope/exclude rules as analysis, so `deviations` can run as a
     fast pre-commit check without configuring a compile DB.
     """
-    from ..db import in_scope
+    from ..scope_policy import select_sources
 
-    exts = {".c", ".h", ".cpp", ".hpp", ".cc"}
-    roots = cfg.scope or ["."]
-    seen: set[Path] = set()
-    out: list[Path] = []
-    for entry in roots:
-        base = cfg.project_root / entry.rstrip("/")
-        candidates = base.rglob("*") if base.is_dir() else cfg.project_root.glob(entry)
-        for p in candidates:
-            if p.suffix not in exts or not p.is_file() or p in seen:
-                continue
-            rel = p.resolve().relative_to(cfg.project_root.resolve()).as_posix()
-            if in_scope(cfg, rel):
-                seen.add(p)
-                out.append(p)
-    return sorted(out)
+    return select_sources(cfg.project_root, cfg.scope, cfg.exclude)
 
 
 def _rel(root: Path, path: Path) -> str:
