@@ -295,8 +295,8 @@ def test_terminal_verbose_shows_cppcheck_diagnostics(capsys):
     assert "style" in loud
     assert "passedByValue" in loud
     assert "src/a.c:10:1" in loud
-    # Cppcheck section comes after MISRA locations (table stays near top).
-    assert loud.index("Findings by rule") < loud.index("Cppcheck diagnostics")
+    # Table comes after verbose logs so it's near the summary at the bottom.
+    assert loud.index("Cppcheck diagnostics") < loud.index("Findings by rule")
 
 
 def test_find_stale_cross_references_unsuppressed_findings():

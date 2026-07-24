@@ -79,10 +79,25 @@ def render_terminal(
 
     if not misra:
         console.print("\n[bold green]No MISRA findings.[/] [green]OK[/]")
-        _maybe_cppcheck_note(console, report, verbose=False)
+        _maybe_cppcheck_note(console, report, verbose=verbose)
         return
 
-    # Per-rule summary, most-severe category first, then by count.
+    if verbose:
+        # Detailed, deterministic listing.
+        console.print("\n[bold]Locations[/]")
+        for f in sorted(misra, key=Finding.sort_key):
+            style = _CATEGORY_STYLE[f.category]
+            loc = escape(f"{f.file}:{f.line}:{f.column}")
+            console.print(
+                f"  [dim]{loc}[/]  [{style}]{f.rule_id}[/]  {escape(f.message)}"
+            )
+    else:
+        console.print("\n[dim]Run with -v/--verbose for the per-location listing.[/]")
+
+    if verbose:
+        _render_cppcheck_verbose(console, report.cppcheck())
+
+    # Per-rule summary (after verbose logs so it's near the bottom).
     by_rule: dict[str, list[Finding]] = {}
     for f in misra:
         by_rule.setdefault(f.rule_id, []).append(f)
@@ -104,21 +119,6 @@ def render_terminal(
             escape(group[0].headline or ""),
         )
     console.print(table)
-
-    if verbose:
-        # Detailed, deterministic listing.
-        console.print("\n[bold]Locations[/]")
-        for f in sorted(misra, key=Finding.sort_key):
-            style = _CATEGORY_STYLE[f.category]
-            loc = escape(f"{f.file}:{f.line}:{f.column}")
-            console.print(
-                f"  [dim]{loc}[/]  [{style}]{f.rule_id}[/]  {escape(f.message)}"
-            )
-    else:
-        console.print("\n[dim]Run with -v/--verbose for the per-location listing.[/]")
-
-    if verbose:
-        _render_cppcheck_verbose(console, report.cppcheck())
 
     _print_summary(console, misra)
     _maybe_cppcheck_note(console, report, verbose=verbose)
