@@ -244,6 +244,61 @@ def test_terminal_verbose_gates_locations(capsys):
     assert "a.c:100" in loud
 
 
+def test_terminal_verbose_shows_cppcheck_diagnostics(capsys):
+    """Verbose mode renders cppcheck (non-MISRA) findings with severity tags;
+    non-verbose hides them behind a note prompting -v."""
+    from misch.db import ScopeCoverage
+    from misch.report.model import Report, Source
+    from misch.report.renderers import render_terminal
+
+    report = Report(
+        findings=[
+            _finding(rule_id="misra-c2012-11.4", message="cast"),
+            Finding(
+                rule_id="nullPointer",
+                message="Possible null pointer dereference",
+                file="src/b.c",
+                line=42,
+                column=5,
+                severity="error",
+                source=Source.CPPCHECK,
+            ),
+            Finding(
+                rule_id="passedByValue",
+                message="Parameter passed by value",
+                file="src/a.c",
+                line=10,
+                column=1,
+                severity="style",
+                source=Source.CPPCHECK,
+            ),
+        ],
+        analysed_files=["src/a.c", "src/b.c"],
+        excluded_files=[],
+    )
+    cov = ScopeCoverage(analysed=["src/a.c", "src/b.c"], excluded=[], unattributed=[])
+
+    # Non-verbose: cppcheck details hidden, note prompts -v.
+    render_terminal(report, cov, verbose=False)
+    quiet = capsys.readouterr().out
+    assert "nullPointer" not in quiet
+    assert "passedByValue" not in quiet
+    assert "run with -v/--verbose to see them" in quiet
+
+    # Verbose: cppcheck section appears before MISRA table.
+    render_terminal(report, cov, verbose=True)
+    loud = capsys.readouterr().out
+    assert "Cppcheck diagnostics" in loud
+    assert "error" in loud
+    assert "nullPointer" in loud
+    assert "src/b.c:42:5" in loud
+    assert "style" in loud
+    assert "passedByValue" in loud
+    assert "src/a.c:10:1" in loud
+    # Cppcheck section comes after MISRA locations (table stays near top).
+    assert loud.index("Findings by rule") < loud.index("Cppcheck diagnostics")
+
+
 def test_find_stale_cross_references_unsuppressed_findings():
     from misch.report.deviations import Deviation, find_stale
 

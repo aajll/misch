@@ -9,6 +9,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 
 from ..db import ScopeCoverage
 from .baseline import BaselineDiff
@@ -29,6 +30,36 @@ _CATEGORY_STYLE = {
     Category.UNKNOWN: "dim",
 }
 
+# Severity colours for cppcheck's own diagnostics.
+_SEVERITY_STYLE = {
+    "error": "bright_red",
+    "warning": "yellow",
+    "style": "dim",
+    "information": "dim",
+}
+
+
+def _render_cppcheck_verbose(console: Console, findings: list[Finding]) -> None:
+    """Render cppcheck (non-MISRA) diagnostics as a verbose listing.
+
+    Format: file:line:column  [severity] rule_id  message
+    Nothing printed if the list is empty.
+    Uses Text objects so severity words render literally with style.
+    """
+    if not findings:
+        return
+    console.print("\n[bold]Cppcheck diagnostics[/]")
+    for f in sorted(findings, key=Finding.sort_key):
+        style = _SEVERITY_STYLE.get(f.severity, "dim")
+        loc_text = escape(f"{f.file}:{f.line}:{f.column}")
+        line = Text()
+        line.append("  ", style="dim")
+        line.append(loc_text, style="dim")
+        line.append("  ", style="dim")
+        line.append(f"[{f.severity}]", style=style)
+        line.append(f" {escape(f.rule_id)}  {escape(f.message)}")
+        console.print(line)
+
 
 def render_terminal(
     report: Report, coverage: ScopeCoverage, *, verbose: bool = False
@@ -48,7 +79,7 @@ def render_terminal(
 
     if not misra:
         console.print("\n[bold green]No MISRA findings.[/] [green]OK[/]")
-        _maybe_cppcheck_note(console, report)
+        _maybe_cppcheck_note(console, report, verbose=False)
         return
 
     # Per-rule summary, most-severe category first, then by count.
@@ -86,8 +117,11 @@ def render_terminal(
     else:
         console.print("\n[dim]Run with -v/--verbose for the per-location listing.[/]")
 
+    if verbose:
+        _render_cppcheck_verbose(console, report.cppcheck())
+
     _print_summary(console, misra)
-    _maybe_cppcheck_note(console, report)
+    _maybe_cppcheck_note(console, report, verbose=verbose)
 
 
 def _print_summary(console: Console, misra: list[Finding]) -> None:
@@ -100,12 +134,16 @@ def _print_summary(console: Console, misra: list[Finding]) -> None:
     console.print(f"\n[bold]{len(misra)} MISRA finding(s):[/] " + "  ".join(parts))
 
 
-def _maybe_cppcheck_note(console: Console, report: Report) -> None:
+def _maybe_cppcheck_note(
+    console: Console, report: Report, *, verbose: bool
+) -> None:
     n = sum(1 for f in report.findings if f.source is Source.CPPCHECK)
     if n:
+        if verbose:
+            return  # already shown by _render_cppcheck_verbose
         console.print(
-            f"[dim]({n} non-MISRA cppcheck diagnostic(s), often parse/config "
-            f"issues worth fixing; see the JSON output.)[/]"
+            f"[dim]({n} non-MISRA cppcheck diagnostic(s); "
+            f"run with -v/--verbose to see them.)[/]"
         )
 
 

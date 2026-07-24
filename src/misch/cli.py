@@ -75,7 +75,10 @@ def main(argv: list[str] | None = None) -> int:
         "-v",
         "--verbose",
         action="store_true",
-        help="also print the per-location listing (default: table + summary)",
+        help=(
+            "also print cppcheck diagnostics and per-location listing "
+            "(default: table + summary)"
+        ),
     )
     p_run.add_argument("--profile", help="profile name to apply (e.g. arm, aarch64)")
     p_run.set_defaults(func=_cmd_run)
