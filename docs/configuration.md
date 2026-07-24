@@ -53,7 +53,9 @@ The generated configuration points project suppressions to `analysis/deviations/
 
 Initialization checks every generated file before writing. If any target exists, nothing is written and the command exits with status 2. `--force` replaces all generated regular-file targets, including scaffold documentation and the deviations template. It does not replace a directory with a file or write through an invalid directory layout.
 
-When `--db` is omitted, initialization detects exactly one root-level candidate: `meson.build`, `CMakeLists.txt`, `compile_commands.json`, or `build/compile_commands.json`. It writes the matching Meson, CMake, or existing compilation-database source; an existing database uses its detected project-relative path. If no candidate or more than one candidate is present, initialization writes nothing and asks for an explicit selection.
+When `--db` is omitted, initialization detects exactly one root-level candidate: `meson.build`, `CMakeLists.txt`, `compile_commands.json`, or `build/compile_commands.json`. It writes the matching Meson, CMake, or existing compilation-database source; an existing database uses its detected project-relative path. If no candidate or more than one candidate is present, initialization writes nothing and asks for an explicit selection. Detection prefers a native build system (`meson.build`, `CMakeLists.txt`) over an existing compilation database; pass `--db existing` to force consuming a pre-generated database when both are present.
+
+Note that `compile_commands.json` (root) and `build/compile_commands.json` are treated as separate candidates — if both exist, detection fails as ambiguous. Use `--db existing --db-path PATH` to choose explicitly in that case.
 
 Use `--db meson`, `--db cmake`, or `--db existing` to override detection. Pair `--db existing` (or `--db-path` on its own) with `--db-path PATH` to select a particular compilation database. `--force` permits replacing generated files only; it never bypasses an absent or ambiguous build-source selection.
 
@@ -137,6 +139,8 @@ outputs = [
 ```
 
 Supported `misch run` formats are `terminal`, `json`, and `sarif`. Configured relative output paths are resolved from the directory containing `misra.toml`. Command-line `--format` options replace the configured output list for that run and may be repeated. `--output PATH` overrides the path used for a requested file format. Terminal output has no file path.
+
+Terminal output has two tiers: the default summary (rule table + counts), and `-v`/`--verbose` which adds a colour-coded per-location listing of all cppcheck diagnostics (including non-MISRA warnings) above the table.
 
 Without configuration, terminal output is used.
 
