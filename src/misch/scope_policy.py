@@ -7,11 +7,8 @@ Owns the shared policy exercised by three adapters:
 - deviation source discovery (report/deviations module)
 
 Glob precedence, project-relative path rules, and external-location detection
-live here. Callers import only the public symbols; matching semantics change
-and are verified in one place.
-
-Deletion test: removing this module would scatter inclusion/exclusion
-precedence and project-relative path logic across all three callers.
+live here. Callers import only the public symbols, so matching semantics change
+and are verified in one place instead of in each of the three adapters.
 """
 
 from __future__ import annotations

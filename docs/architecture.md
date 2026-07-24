@@ -14,7 +14,7 @@ It does not contain MISRA guideline text. Rule headlines and categories are supp
 
 Each translation unit in the compilation database must match either `[project].scope` or `[project].exclude`. An unmatched file is a configuration error rather than an implicit exclusion.
 
-The compilation database contains translation units, not every included header. After analysis, `misch` applies the same boundary to finding locations. A finding in a project file that matches neither scope nor exclusions is also an error. Findings in explicitly excluded paths and external system or toolchain headers are omitted.
+The compilation database contains translation units, not every included header. After analysis, `misch` applies the same boundary to finding locations. A finding in a project file that matches neither scope nor exclusions is also an error. Findings in explicitly excluded paths are omitted, as are external system or toolchain headers, which are reported at absolute paths and so match no configured scope. A configuration with no `scope` entries draws no inclusion boundary, so every non-excluded finding is kept.
 
 This model prevents known files and reported locations from silently falling outside the audit boundary. It cannot prove coverage of a header that produces no finding and is absent from the compilation database.
 

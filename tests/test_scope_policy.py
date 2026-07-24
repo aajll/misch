@@ -1,4 +1,4 @@
-"""Pure-interface tests for the scope policy deep module."""
+"""Tests for the scope policy module's public interface."""
 
 from __future__ import annotations
 
