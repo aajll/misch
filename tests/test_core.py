@@ -299,6 +299,49 @@ def test_terminal_verbose_shows_cppcheck_diagnostics(capsys):
     assert loud.index("Cppcheck diagnostics") < loud.index("Findings by rule")
 
 
+def test_terminal_cppcheck_only_report_respects_verbose_mode(capsys):
+    """Cppcheck-only reports retain MISRA status while verbose shows details."""
+    from misch.db import ScopeCoverage
+    from misch.report.model import Report, Source
+    from misch.report.renderers import render_terminal
+
+    report = Report(
+        findings=[
+            Finding(
+                rule_id="nullPointer",
+                message="Possible null pointer dereference",
+                file="src/a.c",
+                line=10,
+                column=2,
+                severity="error",
+                source=Source.CPPCHECK,
+            )
+        ],
+        analysed_files=["src/a.c"],
+        excluded_files=[],
+    )
+    cov = ScopeCoverage(analysed=["src/a.c"], excluded=[], unattributed=[])
+
+    render_terminal(report, cov, verbose=False)
+    quiet = capsys.readouterr().out
+    assert "No MISRA findings. OK" in quiet
+    assert "nullPointer" not in quiet
+    assert "run with -v/--verbose to see them" in quiet
+    assert "Findings by rule" not in quiet
+    assert "0 MISRA finding(s):" not in quiet
+
+    render_terminal(report, cov, verbose=True)
+    loud = capsys.readouterr().out
+    assert "No MISRA findings. OK" in loud
+    assert "Cppcheck diagnostics" in loud
+    assert "src/a.c:10:2" in loud
+    assert "error" in loud
+    assert "nullPointer" in loud
+    assert loud.index("No MISRA findings. OK") < loud.index("Cppcheck diagnostics")
+    assert "Findings by rule" not in loud
+    assert "0 MISRA finding(s):" not in loud
+
+
 def test_find_stale_cross_references_unsuppressed_findings():
     from misch.report.deviations import Deviation, find_stale
 

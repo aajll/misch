@@ -79,6 +79,8 @@ def render_terminal(
 
     if not misra:
         console.print("\n[bold green]No MISRA findings.[/] [green]OK[/]")
+        if verbose:
+            _render_cppcheck_verbose(console, report.cppcheck())
         _maybe_cppcheck_note(console, report, verbose=verbose)
         return
 
