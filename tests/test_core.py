@@ -638,13 +638,13 @@ def test_resolve_compile_db_missing_existing_file(tmp_path: Path):
 
 def test_init_writes_loadable_config_and_respects_force(tmp_path: Path):
     out = tmp_path / "misra.toml"
-    assert main(["init", "-o", str(out)]) == 0
+    assert main(["init", "--db", "meson", "-o", str(out)]) == 0
     cfg = load(out)  # the generated template must load cleanly
     assert cfg.db_source == "meson"
     assert cfg.scope == ["src/"]
 
     first = out.read_text()
-    assert main(["init", "-o", str(out)]) == 2  # refuses to overwrite
+    assert main(["init", "--db", "meson", "-o", str(out)]) == 2  # refuses to overwrite
     assert out.read_text() == first
 
     rc = main(["init", "-o", str(out), "--force", "--db", "existing"])

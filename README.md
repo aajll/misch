@@ -36,7 +36,7 @@ misch run --baseline   # report everything; exit 1 only for new findings
 misch deviations       # validate suppressions and their justifications
 ```
 
-Use `misch init` without `--scaffold` when only a configuration file is wanted. Review the generated scope, exclusions, and compilation-database source before the first run.
+Use `misch init` without `--scaffold` when only a configuration file is wanted. With no `--db` option, initialization detects one root-level Meson, CMake, or existing compilation-database candidate; it fails without writing if the choice is absent or ambiguous. Use `--db` (and `--db-path` for an existing database) to choose explicitly. Review the generated scope, exclusions, and compilation-database source before the first run.
 
 Rule headlines and Mandatory, Required, or Advisory categories are optional. Supply them from a licensed MISRA document through a cppcheck-format file:
 

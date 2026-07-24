@@ -27,7 +27,7 @@ def test_scaffold_cli_creates_documented_loadable_layout(tmp_path: Path, monkeyp
     monkeypatch.delenv("MISRA_RULE_TEXTS", raising=False)
     out = tmp_path / "misra.toml"
 
-    assert main(["init", "--scaffold", "-o", str(out)]) == 0
+    assert main(["init", "--db", "meson", "--scaffold", "-o", str(out)]) == 0
 
     expected = {
         out,
@@ -72,6 +72,8 @@ def test_scaffold_preserves_custom_rule_texts_setting(tmp_path: Path):
         main(
             [
                 "init",
+                "--db",
+                "meson",
                 "--scaffold",
                 "--rule-texts",
                 "private/headlines.txt",
@@ -91,7 +93,7 @@ def test_scaffold_collision_refuses_all_writes(tmp_path: Path, capsys):
     existing.parent.mkdir(parents=True)
     existing.write_text("KEEP ME\n")
 
-    assert main(["init", "--scaffold", "-o", str(out)]) == 2
+    assert main(["init", "--db", "meson", "--scaffold", "-o", str(out)]) == 2
 
     assert existing.read_text() == "KEEP ME\n"
     assert not out.exists()
@@ -101,7 +103,7 @@ def test_scaffold_collision_refuses_all_writes(tmp_path: Path, capsys):
 
 def test_scaffold_force_replaces_all_generated_targets(tmp_path: Path):
     out = tmp_path / "misra.toml"
-    args = ["init", "--scaffold", "-o", str(out)]
+    args = ["init", "--db", "meson", "--scaffold", "-o", str(out)]
     assert main(args) == 0
 
     deviations = tmp_path / "analysis/deviations/misra-deviations.txt"
@@ -120,7 +122,7 @@ def test_scaffold_reports_non_directory_parent_without_partial_writes(
     blocker = tmp_path / "analysis"
     blocker.write_text("not a directory\n")
 
-    assert main(["init", "--scaffold", "-o", str(out)]) == 2
+    assert main(["init", "--db", "meson", "--scaffold", "-o", str(out)]) == 2
     assert not out.exists()
     assert blocker.read_text() == "not a directory\n"
     assert "cannot create regular init" in capsys.readouterr().err
@@ -130,7 +132,7 @@ def test_scaffold_force_does_not_replace_directory_with_file(tmp_path: Path, cap
     out = tmp_path / "misra.toml"
     out.mkdir()
 
-    assert main(["init", "--scaffold", "--force", "-o", str(out)]) == 2
+    assert main(["init", "--db", "meson", "--scaffold", "--force", "-o", str(out)]) == 2
     assert out.is_dir()
     assert not (tmp_path / "analysis").exists()
     assert "cannot create regular init" in capsys.readouterr().err
@@ -143,7 +145,7 @@ def test_scaffold_reports_blocker_above_missing_output_directory(
     blocker.write_text("not a directory\n")
     out = blocker / "config/misra.toml"
 
-    assert main(["init", "--scaffold", "-o", str(out)]) == 2
+    assert main(["init", "--db", "meson", "--scaffold", "-o", str(out)]) == 2
 
     assert blocker.read_text() == "not a directory\n"
     assert "cannot create regular init" in capsys.readouterr().err
@@ -158,7 +160,7 @@ def test_scaffold_rejects_dangling_config_symlink_without_writes(
     out = project / "misra.toml"
     external = tmp_path / "outside.toml"
     out.symlink_to(external)
-    args = ["init", "--scaffold", "-o", str(out)]
+    args = ["init", "--db", "meson", "--scaffold", "-o", str(out)]
     if force:
         args.append("--force")
 
@@ -181,7 +183,7 @@ def test_scaffold_rejects_symlinked_analysis_directory_without_writes(
     analysis = project / "analysis"
     analysis.symlink_to(external, target_is_directory=True)
     out = project / "misra.toml"
-    args = ["init", "--scaffold", "-o", str(out)]
+    args = ["init", "--db", "meson", "--scaffold", "-o", str(out)]
     if force:
         args.append("--force")
 
@@ -204,7 +206,7 @@ def test_scaffold_rejects_generated_file_symlink_without_writes(
     linked_target = rules / "README.md"
     linked_target.symlink_to(external)
     out = project / "misra.toml"
-    args = ["init", "--scaffold", "-o", str(out)]
+    args = ["init", "--db", "meson", "--scaffold", "-o", str(out)]
     if force:
         args.append("--force")
 
@@ -217,9 +219,75 @@ def test_scaffold_rejects_generated_file_symlink_without_writes(
     assert "cannot create regular init" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    ("marker", "source"),
+    [("meson.build", "meson"), ("CMakeLists.txt", "cmake")],
+)
+def test_init_detects_a_single_build_system(tmp_path: Path, marker: str, source: str):
+    (tmp_path / marker).write_text("# marker\n")
+    out = tmp_path / "misra.toml"
+
+    assert main(["init", "-o", str(out)]) == 0
+    assert load(out).db_source == source
+
+
+def test_init_detects_existing_database_and_writes_its_path(tmp_path: Path):
+    db = tmp_path / "build/compile_commands.json"
+    db.parent.mkdir()
+    db.write_text("[]")
+    out = tmp_path / "misra.toml"
+
+    assert main(["init", "-o", str(out)]) == 0
+    cfg = load(out)
+    assert cfg.db_source == "existing"
+    assert cfg.db_path == "build/compile_commands.json"
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_init_requires_explicit_db_when_detection_is_absent_or_ambiguous(
+    tmp_path: Path, capsys, force: bool
+):
+    out = tmp_path / "misra.toml"
+    (tmp_path / "meson.build").write_text("# marker\n")
+    (tmp_path / "CMakeLists.txt").write_text("# marker\n")
+    args = ["init", "-o", str(out)]
+    if force:
+        args.append("--force")
+
+    assert main(args) == 2
+    assert not out.exists()
+    assert "--db meson" in capsys.readouterr().err
+
+
+def test_init_requires_explicit_db_when_no_candidate_exists(tmp_path: Path, capsys):
+    out = tmp_path / "misra.toml"
+
+    assert main(["init", "-o", str(out)]) == 2
+    assert not out.exists()
+    assert "candidates: none" in capsys.readouterr().err
+
+
+def test_init_explicit_db_overrides_detection(tmp_path: Path):
+    (tmp_path / "meson.build").write_text("# marker\n")
+    (tmp_path / "CMakeLists.txt").write_text("# marker\n")
+    out = tmp_path / "misra.toml"
+
+    assert main(["init", "--db", "cmake", "-o", str(out)]) == 0
+    assert load(out).db_source == "cmake"
+
+
+def test_init_db_path_selects_existing_without_detection(tmp_path: Path):
+    out = tmp_path / "misra.toml"
+
+    assert main(["init", "--db-path", "out/compile_commands.json", "-o", str(out)]) == 0
+    cfg = load(out)
+    assert cfg.db_source == "existing"
+    assert cfg.db_path == "out/compile_commands.json"
+
+
 def test_scaffold_baseline_path_accepts_canonical_snapshot(tmp_path: Path):
     out = tmp_path / "misra.toml"
-    assert main(["init", "--scaffold", "-o", str(out)]) == 0
+    assert main(["init", "--db", "meson", "--scaffold", "-o", str(out)]) == 0
     cfg = load(out)
 
     assert write_baseline(cfg.baseline_path, []) == 0

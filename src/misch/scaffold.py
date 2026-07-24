@@ -11,16 +11,18 @@ from dataclasses import dataclass, field
 from importlib.resources import files as resource_files
 from pathlib import Path
 
+from .config_schema import INIT_DEFAULTS
+
 
 @dataclass(slots=True)
 class ScaffoldParams:
-    scope: list[str] = field(default_factory=lambda: ["src/"])
-    exclude: list[str] = field(default_factory=lambda: ["tests/", "subprojects/"])
-    db_source: str = "meson"
+    scope: list[str] = field(default_factory=lambda: list(INIT_DEFAULTS.scope))
+    exclude: list[str] = field(default_factory=lambda: list(INIT_DEFAULTS.exclude))
+    db_source: str = INIT_DEFAULTS.db_source
     db_path: str | None = None
-    platform_preset: str = "unix64"
+    platform_preset: str = INIT_DEFAULTS.platform
     platform_xml: str | None = None
-    rule_texts: str = "${MISRA_RULE_TEXTS}"
+    rule_texts: str = INIT_DEFAULTS.rule_texts
     defines: list[str] = field(default_factory=list)
     scaffolded: bool = False
 
@@ -33,12 +35,37 @@ class ScaffoldConflict(Exception):
         super().__init__(", ".join(str(path) for path in paths))
 
 
+class ScaffoldDbDetectionError(Exception):
+    """Build-source selection needs an explicit ``--db`` choice."""
+
+    def __init__(self, candidates: list[str]):
+        self.candidates = candidates
+        description = ", ".join(candidates) if candidates else "none"
+        super().__init__(f"could not select a build source (candidates: {description})")
+
+
 class ScaffoldPathError(Exception):
     """A generated target cannot be represented by regular files."""
 
     def __init__(self, paths: list[Path]):
         self.paths = paths
         super().__init__(", ".join(str(path) for path in paths))
+
+
+def detect_db_source(root: Path) -> tuple[str, str | None]:
+    """Select the sole conventional root-level build source, or fail fast."""
+    candidates: list[tuple[str, str | None, str]] = []
+    if (root / "meson.build").is_file():
+        candidates.append(("meson", None, "meson"))
+    if (root / "CMakeLists.txt").is_file():
+        candidates.append(("cmake", None, "cmake"))
+    for path in (Path("compile_commands.json"), Path("build/compile_commands.json")):
+        if (root / path).is_file():
+            candidates.append(("existing", path.as_posix(), f"existing ({path})"))
+    if len(candidates) != 1:
+        raise ScaffoldDbDetectionError([candidate[2] for candidate in candidates])
+    source, path, _ = candidates[0]
+    return source, path
 
 
 def _toml_array(items: list[str]) -> str:

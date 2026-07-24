@@ -53,6 +53,10 @@ The generated configuration points project suppressions to `analysis/deviations/
 
 Initialization checks every generated file before writing. If any target exists, nothing is written and the command exits with status 2. `--force` replaces all generated regular-file targets, including scaffold documentation and the deviations template. It does not replace a directory with a file or write through an invalid directory layout.
 
+When `--db` is omitted, initialization detects exactly one root-level candidate: `meson.build`, `CMakeLists.txt`, `compile_commands.json`, or `build/compile_commands.json`. It writes the matching Meson, CMake, or existing compilation-database source; an existing database uses its detected project-relative path. If no candidate or more than one candidate is present, initialization writes nothing and asks for an explicit selection.
+
+Use `--db meson`, `--db cmake`, or `--db existing` to override detection. Pair `--db existing` (or `--db-path` on its own) with `--db-path PATH` to select a particular compilation database. `--force` permits replacing generated files only; it never bypasses an absent or ambiguous build-source selection.
+
 Initialization options such as `--db`, `--scope`, `--exclude`, `--platform`, `--rule-texts`, and `--define` prefill the generated configuration. Run `misch init --help` for the complete option list.
 
 ## `[project]`: analysis boundary
