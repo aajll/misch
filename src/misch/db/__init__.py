@@ -15,7 +15,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import Config
-from ..scope_policy import ScopeClass, classify, is_external, to_project_rel
+from ..scope_policy import (
+    ScopeClass,
+    classify,
+    classify_one,
+    is_external,
+    to_project_rel,
+)
 
 
 class DbError(Exception):
@@ -140,10 +146,12 @@ def partition_findings(cfg: Config, findings: list) -> tuple[list, list]:
     for f in findings:
         if not f.file:
             continue
-        buckets = classify([f.file], cfg.scope, cfg.exclude)
-        if f.file in buckets[ScopeClass.IN_SCOPE]:
+        cls = classify_one(f.file, cfg.scope, cfg.exclude)
+        if cls is ScopeClass.IN_SCOPE:
             kept.append(f)
-        elif f.file in buckets[ScopeClass.UNATTRIBUTED] and not is_external(f.file):
+        elif cls is ScopeClass.UNATTRIBUTED and not is_external(
+            cfg.project_root, f.file
+        ):
             unattributed.append(f)
-        # else: excluded or external-unattributed, dropped silently.
+        # else: excluded, or unattributed outside the tree; dropped silently.
     return kept, unattributed

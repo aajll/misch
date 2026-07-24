@@ -1,14 +1,16 @@
 """Project-scope matching, classification, and source selection.
 
-Owns the shared policy exercised by three adapters:
+Owns the shared policy exercised by the scope adapters:
 
 - compile-DB file classification (db module)
 - finding-location partitioning (db module)
 - deviation source discovery (report/deviations module)
 
-Glob precedence, project-relative path rules, and external-location detection
-live here. Callers import only the public symbols, so matching semantics change
-and are verified in one place instead of in each of the three adapters.
+Glob precedence, external-location detection, and project-relative path rules
+live here. Normalization is also what the finding parser and the deviation
+harvester call before any of the above sees a path, so producers and consumers
+of a project-relative path share one definition of it. Callers import only the
+public symbols, so matching semantics change and are verified in one place.
 """
 
 from __future__ import annotations
@@ -55,13 +57,33 @@ def _matches_any(path: str, globs: list[str]) -> bool:
 
 
 def to_project_rel(root: Path, path: str | Path) -> str:
-    """Resolve *path* relative to *root*, or return as-is if external."""
+    """Resolve *path* relative to *root*.
+
+    A path outside the tree (system / toolchain header) has no project-relative
+    form and comes back as an absolute posix string.  An empty *path* stays
+    empty, because resolving one would silently yield the working directory.
+    """
+    if not path:
+        return ""
     p = Path(path).resolve()
     try:
         return p.relative_to(root.resolve()).as_posix()
     except ValueError:
-        # Outside the project tree (system / toolchain header).
         return p.as_posix()
+
+
+def classify_one(path: str, scope: list[str], exclude: list[str]) -> ScopeClass:
+    """Classify one project-relative path against the scope / exclude globs.
+
+    Exclude globs win over scope globs, and an empty scope puts everything not
+    excluded in scope.  A path matching neither is unattributed; the caller
+    decides whether to raise or skip.
+    """
+    if _matches_any(path, exclude):
+        return ScopeClass.EXCLUDED
+    if not scope or _matches_any(path, scope):
+        return ScopeClass.IN_SCOPE
+    return ScopeClass.UNATTRIBUTED
 
 
 def classify(
@@ -69,22 +91,14 @@ def classify(
     scope: list[str],
     exclude: list[str],
 ) -> dict[ScopeClass, list[str]]:
-    """Bucket *paths* into in-scope / excluded / unattributed.
-
-    Exclude globs win over scope globs.  A path that matches neither is
-    unattributed; the caller decides whether to raise or skip.
+    """Bucket *paths* by ``classify_one``.
 
     All paths must already be project-relative posix strings (use
     ``to_project_rel`` to normalize before calling).
     """
     result = {cls: [] for cls in ScopeClass}
     for p in paths:
-        if _matches_any(p, exclude):
-            result[ScopeClass.EXCLUDED].append(p)
-        elif not scope or _matches_any(p, scope):
-            result[ScopeClass.IN_SCOPE].append(p)
-        else:
-            result[ScopeClass.UNATTRIBUTED].append(p)
+        result[classify_one(p, scope, exclude)].append(p)
     return result
 
 
@@ -97,10 +111,10 @@ def select_sources(
 
     Scans for ``.c``, ``.h``, ``.cpp``, ``.hpp``, ``.cc`` files beneath each
     directory scope entry; a non-directory entry (e.g. ``"src/*.c"``) is
-    expanded as a glob relative to *root*.  Candidates then pass the same
-    exclude-over-scope precedence as ``classify``, and only in-scope results
-    are returned as absolute Paths.  Used by deviation harvesting to run
-    without a compile database.
+    expanded as a glob relative to *root*.  Every candidate is then admitted by
+    ``classify_one``, so the same precedence applies here as everywhere else,
+    and survivors are returned as absolute Paths.  Used by deviation harvesting
+    to run without a compile database.
     """
     exts = {".c", ".h", ".cpp", ".hpp", ".cc"}
     roots = scope or ["."]
@@ -115,9 +129,7 @@ def select_sources(
             if p.suffix not in exts or not p.is_file() or p in seen:
                 continue
             rel = to_project_rel(resolved_root, p)
-            if _matches_any(rel, exclude):
-                continue
-            if scope and not _matches_any(rel, scope):
+            if classify_one(rel, scope, exclude) is not ScopeClass.IN_SCOPE:
                 continue
             seen.add(p)
             out.append(p)
@@ -125,10 +137,12 @@ def select_sources(
     return sorted(out)
 
 
-def is_external(path: str | Path) -> bool:
-    """Return True if *path* resolves to an absolute location outside a project.
+def is_external(root: Path, path: str | Path) -> bool:
+    """Return True if *path* lies outside the *root* project tree.
 
     Used by finding partitioning to silently omit system / toolchain headers
     that the compile database never listed but cppcheck still reports against.
+    Both project-relative and absolute paths are accepted: joining an absolute
+    path to *root* leaves it unchanged.
     """
-    return Path(path).is_absolute()
+    return not (root / path).resolve().is_relative_to(root.resolve())

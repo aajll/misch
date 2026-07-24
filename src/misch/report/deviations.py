@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..scope_policy import select_sources, to_project_rel
 from .model import is_misra_id
 
 # One line may carry any of the cppcheck inline-suppression forms. `ids` is the
@@ -77,7 +78,7 @@ def harvest_inline(files: list[Path], root: Path, known: set[str]) -> list[Devia
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        rel = _rel(root, path)
+        rel = to_project_rel(root, path)
         lines = text.splitlines()
         n = len(lines)
         i = 0
@@ -164,16 +165,7 @@ def discover_sources(cfg) -> list[Path]:
     Uses the same scope/exclude rules as analysis, so `deviations` can run as a
     fast pre-commit check without configuring a compile DB.
     """
-    from ..scope_policy import select_sources
-
     return select_sources(cfg.project_root, cfg.scope, cfg.exclude)
-
-
-def _rel(root: Path, path: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
 
 
 def find_stale(deviations: list[Deviation], findings: list) -> list[str]:

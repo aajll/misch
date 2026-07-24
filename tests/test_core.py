@@ -16,7 +16,6 @@ from misch.report.deviations import Deviation, DeviationRecord
 from misch.report.headlines import load_headlines
 from misch.report.model import Category, Finding, is_misra_id
 from misch.report.renderers import render_baseline_summary
-from misch.scope_policy import ScopeClass, classify
 
 
 def _finding(**kw) -> Finding:
@@ -56,19 +55,6 @@ def test_is_misra_id():
     assert is_misra_id("misra-c2012-dir-4.9")
     assert not is_misra_id("nullPointer")
     assert not is_misra_id("unusedFunction")
-
-
-def test_scope_matching_directory_and_glob():
-    """Verify glob matching semantics through the public classify interface."""
-    # Directory-style: src/ matches beneath it, not prefix match.
-    buckets = classify(["src/a.c", "src/sub/a.c", "srcextra/a.c"], ["src/"], [])
-    assert set(buckets[ScopeClass.IN_SCOPE]) == {"src/a.c", "src/sub/a.c"}
-    assert "srcextra/a.c" in buckets[ScopeClass.UNATTRIBUTED]
-
-    # fnmatch glob.
-    buckets = classify(["x/gen.h", "x/gen.c"], ["*.h"], [])
-    assert set(buckets[ScopeClass.IN_SCOPE]) == {"x/gen.h"}
-    assert "x/gen.c" in buckets[ScopeClass.UNATTRIBUTED]
 
 
 def test_headlines_parser_tab_category_next_line_title(tmp_path: Path):
@@ -383,14 +369,18 @@ def _cfg(tmp_path: Path, scope, exclude) -> Config:
     return c
 
 
-def test_in_scope_exclude_wins(tmp_path: Path):
-    c = _cfg(tmp_path, scope=["src/"], exclude=["src/generated/"])
-    buckets = classify(
-        ["src/a.c", "src/generated/tbl.c", "tests/t.c"], c.scope, c.exclude
-    )
-    assert set(buckets[ScopeClass.IN_SCOPE]) == {"src/a.c"}
-    assert set(buckets[ScopeClass.EXCLUDED]) == {"src/generated/tbl.c"}
-    assert set(buckets[ScopeClass.UNATTRIBUTED]) == {"tests/t.c"}
+def test_discover_sources_walks_scope_without_a_compile_db(tmp_path: Path):
+    """The deviation adapter finds in-scope sources with no build configured."""
+    from misch.report.deviations import discover_sources
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "vendor").mkdir()
+    (tmp_path / "src" / "a.c").write_text("")
+    (tmp_path / "src" / "notes.md").write_text("")  # not a source
+    (tmp_path / "vendor" / "lib.c").write_text("")  # excluded
+
+    c = _cfg(tmp_path, scope=["src/"], exclude=["vendor/"])
+    assert [p.name for p in discover_sources(c)] == ["a.c"]
 
 
 def test_partition_findings_surfaces_unattributed_locations(tmp_path: Path):

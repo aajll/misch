@@ -6,8 +6,8 @@ from pathlib import Path
 
 from misch.scope_policy import (
     ScopeClass,
-    _matches_any,
     classify,
+    classify_one,
     is_external,
     select_sources,
     to_project_rel,
@@ -44,23 +44,29 @@ def test_classify_empty_input_returns_empty_buckets():
 
 
 # ---------------------------------------------------------------------------
-# _matches_any — glob semantics (internal, tested because callers depend on it)
+# classify_one — glob semantics
 # ---------------------------------------------------------------------------
 
 
 def test_matches_directory_boundary():
-    assert _matches_any("src/a.c", ["src/"])
-    assert _matches_any("src/sub/a.c", ["src/"])
-    assert not _matches_any("srcextra/a.c", ["src/"])  # prefix must be a boundary
+    assert classify_one("src/a.c", ["src/"], []) is ScopeClass.IN_SCOPE
+    assert classify_one("src/sub/a.c", ["src/"], []) is ScopeClass.IN_SCOPE
+    # A prefix match must land on a directory boundary.
+    assert classify_one("srcextra/a.c", ["src/"], []) is ScopeClass.UNATTRIBUTED
 
 
 def test_matches_fnmatch_glob():
-    assert _matches_any("x/gen.h", ["*.h"])
-    assert not _matches_any("x/gen.c", ["*.h"])
+    assert classify_one("x/gen.h", ["*.h"], []) is ScopeClass.IN_SCOPE
+    assert classify_one("x/gen.c", ["*.h"], []) is ScopeClass.UNATTRIBUTED
 
 
 def test_matches_empty_glob_ignored():
-    assert not _matches_any("anything.c", [""])
+    """An empty entry matches nothing, rather than standing for everything."""
+    assert classify_one("anything.c", [""], []) is ScopeClass.UNATTRIBUTED
+
+
+def test_classify_one_exclude_wins():
+    assert classify_one("src/gen/tbl.c", ["src/"], ["src/gen/"]) is ScopeClass.EXCLUDED
 
 
 # ---------------------------------------------------------------------------
@@ -180,13 +186,24 @@ def test_select_sources_sorted(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# is_external — absolute path detection
+# is_external — containment in the project tree
 # ---------------------------------------------------------------------------
 
 
-def test_is_external_absolute_true():
-    assert is_external("/usr/include/stddef.h") is True
+def test_is_external_outside_tree(tmp_path: Path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert is_external(root, "/usr/include/stddef.h") is True
 
 
-def test_is_external_relative_false():
-    assert is_external("src/main.c") is False
+def test_is_external_project_relative(tmp_path: Path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert is_external(root, "src/main.c") is False
+
+
+def test_is_external_absolute_inside_tree(tmp_path: Path):
+    """An absolute path under the root is in the project, not external."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert is_external(root, root / "src" / "a.c") is False
