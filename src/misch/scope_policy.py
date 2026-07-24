@@ -34,16 +34,6 @@ class ScopeClass(Enum):
 # ---------------------------------------------------------------------------
 
 
-def _to_project_rel(root: Path, path: str | Path) -> str:
-    """Resolve *path* relative to *root*, or return as-is if external."""
-    p = Path(path).resolve()
-    try:
-        return p.relative_to(root.resolve()).as_posix()
-    except ValueError:
-        # Outside the project tree (system / toolchain header).
-        return p.as_posix()
-
-
 def _matches_any(path: str, globs: list[str]) -> bool:
     """Return True if *path* matches any entry in *globs*.
 
@@ -67,6 +57,16 @@ def _matches_any(path: str, globs: list[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def to_project_rel(root: Path, path: str | Path) -> str:
+    """Resolve *path* relative to *root*, or return as-is if external."""
+    p = Path(path).resolve()
+    try:
+        return p.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        # Outside the project tree (system / toolchain header).
+        return p.as_posix()
+
+
 def classify(
     paths: list[str],
     scope: list[str],
@@ -75,10 +75,10 @@ def classify(
     """Bucket *paths* into in-scope / excluded / unattributed.
 
     Exclude globs win over scope globs.  A path that matches neither is
-    unattributed — the caller decides whether to raise or skip.
+    unattributed; the caller decides whether to raise or skip.
 
     All paths must already be project-relative posix strings (use
-    ``_to_project_rel`` internally before calling).
+    ``to_project_rel`` to normalize before calling).
     """
     result = {cls: [] for cls in ScopeClass}
     for p in paths:
@@ -98,26 +98,29 @@ def select_sources(
 ) -> list[Path]:
     """Walk *root* and return sorted in-scope C source paths.
 
-    Scans for ``.c``, ``.h``, ``.cpp``, ``.hpp``, ``.cc`` files beneath the
-    configured scope roots, applies exclude-wins precedence, and returns only
-    in-scope results as absolute Paths.  Used by deviation harvesting to run
+    Scans for ``.c``, ``.h``, ``.cpp``, ``.hpp``, ``.cc`` files beneath each
+    directory scope entry; a non-directory entry (e.g. ``"src/*.c"``) is
+    expanded as a glob relative to *root*.  Candidates then pass the same
+    exclude-over-scope precedence as ``classify``, and only in-scope results
+    are returned as absolute Paths.  Used by deviation harvesting to run
     without a compile database.
     """
     exts = {".c", ".h", ".cpp", ".hpp", ".cc"}
     roots = scope or ["."]
+    resolved_root = root.resolve()
     seen: set[Path] = set()
     out: list[Path] = []
 
     for entry in roots:
         base = root / entry.rstrip("/")
-        if not base.is_dir():
-            continue
-        resolved_root = root.resolve()
-        for p in sorted(base.rglob("*")):
+        candidates = base.rglob("*") if base.is_dir() else root.glob(entry)
+        for p in candidates:
             if p.suffix not in exts or not p.is_file() or p in seen:
                 continue
-            rel = _to_project_rel(resolved_root, p)
+            rel = to_project_rel(resolved_root, p)
             if _matches_any(rel, exclude):
+                continue
+            if scope and not _matches_any(rel, scope):
                 continue
             seen.add(p)
             out.append(p)

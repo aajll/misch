@@ -7,10 +7,10 @@ from pathlib import Path
 from misch.scope_policy import (
     ScopeClass,
     _matches_any,
-    _to_project_rel,
     classify,
     is_external,
     select_sources,
+    to_project_rel,
 )
 
 # ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ def test_matches_empty_glob_ignored():
 
 
 # ---------------------------------------------------------------------------
-# _to_project_rel — path normalization
+# to_project_rel — path normalization
 # ---------------------------------------------------------------------------
 
 
@@ -74,7 +74,7 @@ def test_to_project_rel_inside_tree(tmp_path: Path):
     (root / "src").mkdir()
     file = root / "src" / "a.c"
     file.touch()
-    rel = _to_project_rel(root, file)
+    rel = to_project_rel(root, file)
     assert rel == "src/a.c"
 
 
@@ -84,7 +84,7 @@ def test_to_project_rel_outside_tree(tmp_path: Path):
     external = tmp_path / "other" / "lib.c"
     external.parent.mkdir(exist_ok=True)
     external.touch()
-    rel = _to_project_rel(root, external)
+    rel = to_project_rel(root, external)
     # Falls back to absolute posix path.
     assert Path(rel).is_absolute()
 
@@ -113,9 +113,44 @@ def test_select_sources_excludes(tmp_path: Path):
     (root / "src" / "a.c").write_text("")
     (root / "gen" / "tbl.c").write_text("")
 
-    sources = select_sources(root, scope=[".",], exclude=["gen/"])
+    sources = select_sources(root, scope=[], exclude=["gen/"])
     assert len(sources) == 1
     assert sources[0].name == "a.c"
+
+
+def test_select_sources_glob_scope_entry(tmp_path: Path):
+    """A non-directory scope entry is expanded as a glob against the root."""
+    root = tmp_path / "proj"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.c").write_text("")
+    (root / "src" / "util.h").write_text("")
+
+    sources = select_sources(root, scope=["src/*.c"], exclude=[])
+    assert [p.name for p in sources] == ["main.c"]
+
+
+def test_select_sources_file_scope_entry(tmp_path: Path):
+    """A scope entry naming a single file selects exactly that file."""
+    root = tmp_path / "proj"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.c").write_text("")
+    (root / "src" / "other.c").write_text("")
+
+    sources = select_sources(root, scope=["src/main.c"], exclude=[])
+    assert [p.name for p in sources] == ["main.c"]
+
+
+def test_select_sources_applies_scope_match(tmp_path: Path):
+    """A walk from one scope root admits only files some scope entry matches."""
+    root = tmp_path / "proj"
+    (root / "src").mkdir(parents=True)
+    (root / "lib").mkdir()
+    (root / "src" / "a.c").write_text("")
+    (root / "lib" / "b.c").write_text("")
+
+    # "." walks the whole tree, but lib/b.c matches no scope entry.
+    sources = select_sources(root, scope=["src", "."], exclude=[])
+    assert [p.name for p in sources] == ["a.c"]
 
 
 def test_select_sources_deduplicates(tmp_path: Path):
@@ -130,9 +165,18 @@ def test_select_sources_deduplicates(tmp_path: Path):
     assert len(sources) == 2
 
 
-def test_select_sources_sorted():
-    """Results are deterministically sorted."""
-    pass  # Covered by implementation using sorted(); order tested implicitly above.
+def test_select_sources_sorted(tmp_path: Path):
+    """Results are deterministically sorted regardless of discovery order."""
+    root = tmp_path / "proj"
+    (root / "b").mkdir(parents=True)
+    (root / "a").mkdir()
+    (root / "b" / "z.c").write_text("")
+    (root / "a" / "m.c").write_text("")
+    (root / "a" / "k.h").write_text("")
+
+    sources = select_sources(root, scope=["b", "a"], exclude=[])
+    assert sources == sorted(sources)
+    assert [p.name for p in sources] == ["k.h", "m.c", "z.c"]
 
 
 # ---------------------------------------------------------------------------

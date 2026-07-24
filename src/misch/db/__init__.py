@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import Config
-from ..scope_policy import ScopeClass, _to_project_rel, classify, is_external
+from ..scope_policy import ScopeClass, classify, is_external, to_project_rel
 
 
 class DbError(Exception):
@@ -114,7 +114,7 @@ def classify_files(cfg: Config, db_path: Path) -> ScopeCoverage:
     error so nothing is ever silently ignored.
     """
     entries = json.loads(db_path.read_text())
-    files = sorted({_to_project_rel(cfg.project_root, e["file"]) for e in entries})
+    files = sorted({to_project_rel(cfg.project_root, e["file"]) for e in entries})
     buckets = classify(files, cfg.scope, cfg.exclude)
     return ScopeCoverage(
         analysed=buckets[ScopeClass.IN_SCOPE],
@@ -131,21 +131,19 @@ def partition_findings(cfg: Config, findings: list) -> tuple[list, list]:
     findings at their locations. A finding inside the project tree whose path
     matches neither `scope` nor `exclude` is therefore unclassified audit
     territory and must be surfaced, not silently dropped. Findings at
-    explicitly excluded paths and outside the tree (system/toolchain headers)
-    are dropped silently by design.
+    explicitly excluded paths are dropped silently, as are findings outside
+    the tree (system/toolchain headers, reported at absolute paths) that fall
+    outside a configured scope; with an empty scope every non-excluded finding
+    is kept.
     """
     kept, unattributed = [], []
     for f in findings:
         if not f.file:
             continue
-        # Finding files are project-relative strings from engine XML.
-        # Classify directly; absolute paths (system headers) are external.
-        if is_external(f.file):
-            continue  # system/toolchain: drop silently.
         buckets = classify([f.file], cfg.scope, cfg.exclude)
         if f.file in buckets[ScopeClass.IN_SCOPE]:
             kept.append(f)
-        elif f.file in buckets[ScopeClass.UNATTRIBUTED]:
+        elif f.file in buckets[ScopeClass.UNATTRIBUTED] and not is_external(f.file):
             unattributed.append(f)
-        # else: excluded — drop silently.
+        # else: excluded or external-unattributed, dropped silently.
     return kept, unattributed

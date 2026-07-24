@@ -410,6 +410,22 @@ def test_partition_findings_surfaces_unattributed_locations(tmp_path: Path):
     assert unattributed == [header]
 
 
+def test_partition_findings_empty_scope_keeps_external(tmp_path: Path):
+    """With no scope configured, audit everything: a non-excluded finding is
+    kept even at an outside-tree absolute path. Only a configured scope that
+    fails to match drops system/toolchain locations silently."""
+    from misch.db import partition_findings
+
+    c = _cfg(tmp_path, scope=[], exclude=["vendor/"])
+    in_tree = _finding(file="src/a.c")
+    excluded = _finding(file="vendor/lib.c")
+    system = _finding(file="/usr/include/string.h")
+
+    kept, unattributed = partition_findings(c, [in_tree, excluded, system])
+    assert kept == [in_tree, system]
+    assert unattributed == []
+
+
 def test_scaffold_documents_deviations_and_round_trips(tmp_path: Path):
     from misch.config import load
     from misch.scaffold import ScaffoldParams, build_config
