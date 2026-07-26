@@ -1258,3 +1258,69 @@ def test_unknown_profile_settings_raise_config_error(
 
     with pytest.raises(ConfigError, match=message):
         load(config_file, profile_name="arm")
+
+
+def test_schema_merge_append_extends_list():
+    """merge() extends lists via append_ prefix."""
+    from misch.config_schema import merge
+
+    base = {"project": {"scope": ["src/"]}, "toolchain": {}}
+    profile = {
+        "project": {"append_scope": ["lib/"]},
+        "toolchain": {"defines": ["FOO"]},
+    }
+    merge(base, profile, profile_name="test")
+    assert base["project"]["scope"] == ["src/", "lib/"]
+    assert base["toolchain"]["defines"] == ["FOO"]
+
+
+def test_schema_merge_platform_replaces_wholesale():
+    """merge() replaces platform dict wholesale, never deep-merges selectors."""
+    from misch.config_schema import merge
+
+    base = {"platform": {"preset": "unix64"}}
+    profile = {"platform": {"xml": "arm.xml"}}
+    merge(base, profile, profile_name="test")
+    assert base["platform"] == {"xml": "arm.xml"}
+
+
+def test_schema_merge_platform_xor_raises_on_conflict():
+    """merge() rejects configs where preset and xml coexist after merge."""
+    from misch.config_schema import ProfileError, merge
+
+    base = {"platform": {"preset": "unix64", "xml": "arm.xml"}}
+    profile = {}
+    with pytest.raises(
+        ProfileError, match="platform: set either 'preset' or 'xml', not both"
+    ):
+        merge(base, profile, profile_name="test")
+
+
+def test_schema_merge_append_on_non_list_raises():
+    """merge() rejects append_ prefix on a non-list target."""
+    from misch.config_schema import ProfileError, merge
+
+    base = {"toolchain": {"defines": "not-a-list"}}
+    profile = {"toolchain": {"append_defines": ["FOO"]}}
+    with pytest.raises(ProfileError, match="key 'defines' is not a list"):
+        merge(base, profile, profile_name="test")
+
+
+def test_schema_validate_profile_rejects_unknown_field():
+    """validate_profile() rejects fields not in the schema."""
+    from misch.config_schema import ProfileError, validate_profile
+
+    profile = {"toolchain": {"defiens": ["FOO"]}}  # typo
+    with pytest.raises(
+        ProfileError, match="toolchain.defiens is not a supported setting"
+    ):
+        validate_profile(profile, "bad")
+
+
+def test_schema_validate_profile_rejects_append_on_scalar():
+    """validate_profile() rejects append_ prefix on non-list fields."""
+    from misch.config_schema import ProfileError, validate_profile
+
+    profile = {"db": {"append_source": "meson"}}  # source is scalar
+    with pytest.raises(ProfileError, match="can only target a list setting"):
+        validate_profile(profile, "bad")
