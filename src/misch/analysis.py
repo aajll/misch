@@ -1,10 +1,11 @@
 """Analysis transaction types, failure modes, and adapter protocols.
 
 Declares the public interface for running a full MISRA analysis pass. The CLI
-commands will call this interface instead of owning the pipeline themselves.
+commands (`run`, `baseline`, `deviations`) call `analyse()` with concrete
+adapters (`DbAdapterImpl`, `EngineAdapterImpl`) to execute the pipeline.
 
-This module is a pure definition layer — no existing code is modified and nothing
-imports it yet.
+Tests use fake adapter implementations to exercise every gate path without
+requiring cppcheck or real compilation databases.
 """
 
 from __future__ import annotations
