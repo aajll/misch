@@ -22,11 +22,7 @@ from .report.baseline import load_baseline, write_baseline
 from .report.dev_render import render_markdown as render_dev_markdown
 from .report.dev_render import render_terminal as render_dev_terminal
 from .report.deviations import (
-    DeviationRecord,
-    discover_sources,
-    find_stale,
-    harvest_inline,
-    parse_suppressions_file,
+    harvest,
 )
 from .report.headlines import load_headlines
 from .report.model import Report
@@ -301,23 +297,17 @@ def _cmd_deviations(args: argparse.Namespace) -> int:
 
     known = set(load_headlines(cfg.rule_texts)) if cfg.rule_texts else set()
 
-    record = DeviationRecord()
-    record.deviations.extend(
-        harvest_inline(discover_sources(cfg), cfg.project_root, known)
-    )
-    if cfg.suppressions_path and cfg.suppressions_path.is_file():
-        record.deviations.extend(
-            parse_suppressions_file(cfg.suppressions_path, cfg.project_root, known)
-        )
-
+    # Gather unsuppressed findings when stale check is requested.
+    findings: list | None = None
     if args.check_stale:
         try:
-            # An unsuppressed run reveals what each suppression actually hides.
             with _err.status("Running analysis..."):
                 report, _ = _analyse(cfg, inline_suppr=False)
-            record.stale = find_stale(record.deviations, report.findings)
+            findings = report.findings
         except _AnalysisError:
             _err.print("[yellow]note:[/] staleness check skipped (analysis failed).")
+
+    record = harvest(cfg, known, findings=findings)
 
     render_dev_terminal(record)
     for out in [{"format": f} for f in args.format]:

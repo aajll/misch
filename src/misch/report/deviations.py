@@ -55,6 +55,35 @@ class Deviation:
         return self.justified and not self.unknown_ids
 
 
+def harvest(
+    cfg,
+    known_rules: set[str],
+    findings: list | None = None,
+) -> DeviationRecord:
+    """Run the full deviation pipeline and return a complete record.
+
+    Harvests inline suppressions from in-scope sources, parses any project
+    suppression file, and optionally cross-references against unsuppressed
+    findings to detect stale suppressions.
+    """
+    record = DeviationRecord()
+
+    files = _discover_sources(cfg)
+    record.deviations.extend(_harvest_inline(files, cfg.project_root, known_rules))
+
+    if cfg.suppressions_path and cfg.suppressions_path.is_file():
+        record.deviations.extend(
+            _parse_suppressions_file(
+                cfg.suppressions_path, cfg.project_root, known_rules
+            )
+        )
+
+    if findings is not None:
+        record.stale = _find_stale(record.deviations, findings)
+
+    return record
+
+
 def _justification(tail: str) -> str:
     tail = tail.strip()
     if tail.endswith("*/"):
@@ -71,7 +100,7 @@ def _validate_ids(rule_ids: list[str], known: set[str]) -> list[str]:
     return [r for r in rule_ids if is_misra_id(r) and r.lower() not in known]
 
 
-def harvest_inline(files: list[Path], root: Path, known: set[str]) -> list[Deviation]:
+def _harvest_inline(files: list[Path], root: Path, known: set[str]) -> list[Deviation]:
     out: list[Deviation] = []
     for path in files:
         try:
@@ -126,7 +155,9 @@ def harvest_inline(files: list[Path], root: Path, known: set[str]) -> list[Devia
     return out
 
 
-def parse_suppressions_file(path: Path, root: Path, known: set[str]) -> list[Deviation]:
+def _parse_suppressions_file(
+    path: Path, root: Path, known: set[str]
+) -> list[Deviation]:
     """Parse a cppcheck suppressions file; a preceding comment block is the
     justification for the entry that follows it."""
     out: list[Deviation] = []
@@ -159,7 +190,7 @@ def parse_suppressions_file(path: Path, root: Path, known: set[str]) -> list[Dev
     return out
 
 
-def discover_sources(cfg) -> list[Path]:
+def _discover_sources(cfg) -> list[Path]:
     """In-scope source files by walking the scope roots (no build required).
 
     Uses the same scope/exclude rules as analysis, so `deviations` can run as a
@@ -168,7 +199,7 @@ def discover_sources(cfg) -> list[Path]:
     return select_sources(cfg.project_root, cfg.scope, cfg.exclude)
 
 
-def find_stale(deviations: list[Deviation], findings: list) -> list[str]:
+def _find_stale(deviations: list[Deviation], findings: list) -> list[str]:
     """Return "file:line" for inline suppressions that hide nothing.
 
     Cross-references harvested inline `cppcheck-suppress` sites against findings
