@@ -73,7 +73,7 @@ def test_headlines_parser_tab_category_next_line_title(tmp_path: Path):
 
 
 def test_harvest_inline_forms_and_justification(tmp_path: Path):
-    from misch.report.deviations import harvest_inline
+    from misch.report.deviations import _harvest_inline as harvest_inline
 
     src = tmp_path / "a.c"
     src.write_text(
@@ -102,7 +102,8 @@ def test_harvest_multiline_block_comment_justification_and_anchor(tmp_path: Path
     """A cppcheck-suppress in a multi-line block comment: the justification
     spans continuation lines, and staleness must anchor where the comment
     closes (the code the suppression binds to), not at the token line."""
-    from misch.report.deviations import find_stale, harvest_inline
+    from misch.report.deviations import _find_stale as find_stale
+    from misch.report.deviations import _harvest_inline as harvest_inline
 
     src = tmp_path / "a.c"
     src.write_text(
@@ -134,7 +135,9 @@ def test_harvest_multiline_block_comment_justification_and_anchor(tmp_path: Path
 
 
 def test_parse_suppressions_file_comment_is_justification(tmp_path: Path):
-    from misch.report.deviations import parse_suppressions_file
+    from misch.report.deviations import (
+        _parse_suppressions_file as parse_suppressions_file,
+    )
 
     f = tmp_path / "suppressions.txt"
     f.write_text(
@@ -335,7 +338,8 @@ def test_terminal_cppcheck_only_report_respects_verbose_mode(capsys):
 
 
 def test_find_stale_cross_references_unsuppressed_findings():
-    from misch.report.deviations import Deviation, find_stale
+    from misch.report.deviations import Deviation
+    from misch.report.deviations import _find_stale as find_stale
 
     devs = [
         # live: an 11.4 finding sits on the next line
@@ -371,7 +375,7 @@ def _cfg(tmp_path: Path, scope, exclude) -> Config:
 
 def test_discover_sources_walks_scope_without_a_compile_db(tmp_path: Path):
     """The deviation adapter finds in-scope sources with no build configured."""
-    from misch.report.deviations import discover_sources
+    from misch.report.deviations import _discover_sources as discover_sources
 
     (tmp_path / "src").mkdir()
     (tmp_path / "vendor").mkdir()
