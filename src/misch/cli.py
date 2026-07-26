@@ -1,47 +1,18 @@
-"""`misch` command-line entry point: run, init, baseline, deviations."""
+"""`misch` command-line entry point."""
 
 from __future__ import annotations
 
 import argparse
 import sys
-from collections import Counter
 from functools import partial
 from pathlib import Path
 
 from rich.console import Console
 from rich_argparse import RichHelpFormatter
 
-from . import __version__
-from .analysis import (
-    AnalysisSuccess,
-    DbAdapterImpl,
-    DbFailure,
-    EngineAdapterImpl,
-    EngineFailure,
-    ScopeFailure,
-)
-from .analysis import (
-    analyse as analysis_analyse,
-)
-from .config import ConfigError, load
+from . import __version__, scaffold
 from .config_schema import INIT_DEFAULTS
-from .report.baseline import diff as bl_diff
-from .report.baseline import load_baseline, write_baseline
-from .report.dev_render import render_markdown as render_dev_markdown
-from .report.dev_render import render_terminal as render_dev_terminal
-from .report.deviations import (
-    harvest,
-)
-from .report.headlines import load_headlines
-from .report.renderers import render
-from .scaffold import (
-    ScaffoldConflict,
-    ScaffoldDbDetectionError,
-    ScaffoldParams,
-    ScaffoldPathError,
-    detect_db_source,
-    write_project_files,
-)
+from .execution import run
 
 _err = Console(stderr=True)
 
@@ -58,295 +29,66 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     add_parser = partial(sub.add_parser, formatter_class=RichHelpFormatter)
 
-    p_run = add_parser("run", help="analyse a project")
-    p_run.add_argument("-c", "--config", default="misra.toml", type=Path)
-    p_run.add_argument(
-        "--format",
-        action="append",
-        default=[],
-        help="override outputs, e.g. --format json (repeatable)",
-    )
-    p_run.add_argument("--output", type=Path, help="path for a file format")
-    p_run.add_argument(
-        "--baseline",
-        action="store_true",
-        help="ratchet mode: report all, but fail only on findings not in the baseline",
-    )
-    p_run.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help=(
-            "also print cppcheck diagnostics and per-location listing "
-            "(default: table + summary)"
-        ),
-    )
-    p_run.add_argument("--profile", help="profile name to apply (e.g. arm, aarch64)")
-    p_run.set_defaults(func=_cmd_run)
+    p = add_parser("run", help="analyse a project")
+    _add_config_arg(p)
+    p.add_argument("--format", action="append", default=[], help="override outputs")
+    p.add_argument("--output", type=Path, help="path for a file format")
+    p.add_argument("--baseline", action="store_true", help="fail only on new findings")
+    p.add_argument("-v", "--verbose", action="store_true", help="print diagnostics")
 
     _add_init_parser(add_parser)
 
-    p_bl = add_parser("baseline", help="snapshot current findings as the baseline")
-    p_bl.add_argument("-c", "--config", default="misra.toml", type=Path)
-    p_bl.add_argument("--baseline-file", type=Path, help="override the baseline path")
-    p_bl.add_argument("--profile", help="profile name to apply (e.g. arm, aarch64)")
-    p_bl.set_defaults(func=_cmd_baseline)
+    p = add_parser("baseline", help="snapshot current findings as the baseline")
+    _add_config_arg(p)
+    p.add_argument("--baseline-file", type=Path, help="override the baseline path")
 
-    p_dev = add_parser(
-        "deviations", help="harvest + validate MISRA deviations (suppressions)"
-    )
-    p_dev.add_argument("-c", "--config", default="misra.toml", type=Path)
-    p_dev.add_argument("--profile", help="profile name to apply (e.g. arm, aarch64)")
-    p_dev.add_argument(
-        "--check-stale",
-        action="store_true",
-        help="run the engine to flag suppressions that match no finding",
-    )
-    p_dev.add_argument(
-        "--format", action="append", default=[], help="e.g. --format md (repeatable)"
-    )
-    p_dev.add_argument("--output", type=Path, help="path for the Markdown record")
-    p_dev.set_defaults(func=_cmd_deviations)
+    p = add_parser("deviations", help="harvest + validate MISRA deviations")
+    _add_config_arg(p)
+    p.add_argument("--check-stale", action="store_true", help="flag stale suppressions")
+    p.add_argument("--format", action="append", default=[], help="e.g. --format md")
+    p.add_argument("--output", type=Path, help="path for the Markdown record")
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    return _cmd_init(args) if args.cmd == "init" else run(args)
+
+
+def _add_config_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("-c", "--config", default="misra.toml", type=Path)
+    parser.add_argument("--profile", help="profile name to apply (e.g. arm, aarch64)")
 
 
 def _add_init_parser(add_parser) -> None:
     p = add_parser("init", help="generate a misra.toml template")
-    p.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        default=Path("misra.toml"),
-        help="where to write (default: ./misra.toml)",
-    )
-    p.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite every generated file that already exists",
-    )
-    p.add_argument(
-        "--scaffold",
-        action="store_true",
-        help="also create a documented analysis/ directory tree",
-    )
-    p.add_argument(
-        "--db",
-        choices=["meson", "cmake", "existing"],
-        help="compile-DB source (default: detect one root-level candidate)",
-    )
-    p.add_argument("--db-path", help="compile_commands.json path (selects existing)")
-    p.add_argument(
-        "--scope",
-        action="append",
-        default=[],
-        metavar="GLOB",
-        help="analysed source root (repeatable; default: src/)",
-    )
-    p.add_argument(
-        "--exclude",
-        action="append",
-        default=[],
-        metavar="GLOB",
-        help="excluded path (repeatable; default: tests/, subprojects/)",
-    )
-    p.add_argument(
-        "--platform", default=INIT_DEFAULTS.platform, help="cppcheck platform preset"
-    )
-    p.add_argument(
-        "--platform-xml", help="custom cppcheck platform XML (overrides --platform)"
-    )
-    p.add_argument(
-        "--rule-texts", default=INIT_DEFAULTS.rule_texts, help="headlines path"
-    )
-    p.add_argument(
-        "--define",
-        action="append",
-        default=[],
-        metavar="D",
-        help="extra -D define for cppcheck (repeatable)",
-    )
-    p.set_defaults(func=_cmd_init)
-
-
-def _print_scope_error(failure: ScopeFailure) -> None:
-    """Print a scope error matching the legacy _analyse() format."""
-    if "finding(s)" in failure.message:
-        # Partition-findings path: group by file with counts.
-        by_file = Counter(failure.unattributed)
-        _err.print(
-            f"[red]scope error:[/] {len(failure.unattributed)} finding(s) at "
-            "location(s) matching neither \\[project].scope nor "
-            "\\[project].exclude. Classify them explicitly "
-            "(audit boundary must be enumerated):"
-        )
-        for file, n in sorted(by_file.items()):
-            _err.print(f"  [red]?[/] {file} ({n})")
-    else:
-        # Classify-files path: list unattributed paths.
-        _err.print(
-            f"[red]scope error:[/] {len(failure.unattributed)} file(s) match "
-            "neither \\[project].scope nor \\[project].exclude. Classify them "
-            "explicitly (audit boundary must be enumerated):"
-        )
-        for f in failure.unattributed:
-            _err.print(f"  [red]?[/] {f}")
-
-
-def _cmd_run(args: argparse.Namespace) -> int:
-    try:
-        cfg = load(args.config, profile_name=args.profile)
-    except ConfigError as exc:
-        _err.print(f"[red]config error:[/] {exc}")
-        return 2
-
-    with _err.status("Running analysis..."):
-        result = analysis_analyse(
-            cfg, DbAdapterImpl(), EngineAdapterImpl(), inline_suppr=True
-        )
-    if isinstance(result, AnalysisSuccess):
-        report = result.report
-        coverage = result.coverage
-    elif isinstance(result, DbFailure):
-        _err.print(f"[red]compile-db error:[/] {result.message}")
-        return 2
-    elif isinstance(result, ScopeFailure):
-        _print_scope_error(result)
-        return 2
-    elif isinstance(result, EngineFailure):
-        _err.print(f"[red]engine error:[/] {result.message}")
-        return 2
-    else:
-        _err.print("[red]unexpected analysis result[/]")
-        return 2
-
-    # Ratchet mode: compute baseline diff before rendering.
-    diff: object | None = None
-    if args.baseline:
-        baseline = load_baseline(cfg.baseline_path)
-        if not baseline:
-            _err.print(
-                f"[yellow]note:[/] --baseline set but {cfg.baseline_path.name} is "
-                "empty/absent. Run [bold]misch baseline[/] to create it."
-            )
-        d = bl_diff(report.misra(), baseline)
-        diff = d
-
-    if args.format:
-        # CLI format override: apply --output to file-based formats.
-        output_path = args.output
-        outputs = []
-        for fmt in args.format:
-            entry: dict = {"format": fmt}
-            if fmt in ("json", "sarif") and output_path:
-                entry["path"] = str(output_path)
-            elif fmt in ("json", "sarif"):
-                default_name = "misra.json" if fmt == "json" else "misra.sarif"
-                entry["path"] = str(cfg.build_dir / default_name)
-            outputs.append(entry)
-    else:
-        outputs = list(cfg.outputs)
-
-    render(
-        report,
-        coverage,
-        outputs,
-        verbose=getattr(args, "verbose", False),
-        diff=diff,
-    )
-
-    if not args.baseline:
-        return 1 if report.misra() else 0
-
-    return 1 if d.new else 0
-
-
-def _cmd_baseline(args: argparse.Namespace) -> int:
-    try:
-        cfg = load(args.config, profile_name=args.profile)
-    except ConfigError as exc:
-        _err.print(f"[red]config error:[/] {exc}")
-        return 2
-    with _err.status("Running analysis..."):
-        result = analysis_analyse(
-            cfg, DbAdapterImpl(), EngineAdapterImpl(), inline_suppr=True
-        )
-    if isinstance(result, AnalysisSuccess):
-        report = result.report
-    elif isinstance(result, DbFailure):
-        _err.print(f"[red]compile-db error:[/] {result.message}")
-        return 2
-    elif isinstance(result, ScopeFailure):
-        _print_scope_error(result)
-        return 2
-    elif isinstance(result, EngineFailure):
-        _err.print(f"[red]engine error:[/] {result.message}")
-        return 2
-    else:
-        _err.print("[red]unexpected analysis result[/]")
-        return 2
-
-    path = args.baseline_file or cfg.baseline_path
-    n = write_baseline(path, report.misra())
-    _err.print(
-        f"[green]wrote baseline[/] {path}: {n} finding(s) accepted. "
-        "Future [bold]misch run --baseline[/] fails only on new ones."
-    )
-    return 0
-
-
-def _cmd_deviations(args: argparse.Namespace) -> int:
-    try:
-        cfg = load(args.config, profile_name=args.profile)
-    except ConfigError as exc:
-        _err.print(f"[red]config error:[/] {exc}")
-        return 2
-
-    known = set(load_headlines(cfg.rule_texts)) if cfg.rule_texts else set()
-
-    # Gather unsuppressed findings when stale check is requested.
-    findings: list | None = None
-    if args.check_stale:
-        with _err.status("Running analysis..."):
-            result = analysis_analyse(
-                cfg, DbAdapterImpl(), EngineAdapterImpl(), inline_suppr=False
-            )
-        if isinstance(result, AnalysisSuccess):
-            findings = result.report.findings
-        else:
-            _err.print("[yellow]note:[/] staleness check skipped (analysis failed).")
-
-    record = harvest(cfg, known, findings=findings)
-
-    render_dev_terminal(record)
-    for out in [{"format": f} for f in args.format]:
-        if out["format"] == "md":
-            path = args.output or (cfg.build_dir / "deviations.md")
-            render_dev_markdown(record, path)
-            _err.print(f"[dim]wrote deviation record to {path}[/]")
-        else:
-            fmt = out["format"]
-            _err.print(f"[yellow]note:[/] deviations format {fmt!r} unsupported")
-
-    return 0 if record.ok() else 1
+    p.add_argument("-o", "--output", type=Path, default=Path("misra.toml"))
+    p.add_argument("--force", action="store_true", help="overwrite generated files")
+    p.add_argument("--scaffold", action="store_true", help="create analysis/ assets")
+    p.add_argument("--db", choices=["meson", "cmake", "existing"])
+    p.add_argument("--db-path", help="compile_commands.json path")
+    p.add_argument("--scope", action="append", default=[], metavar="GLOB")
+    p.add_argument("--exclude", action="append", default=[], metavar="GLOB")
+    p.add_argument("--platform", default=INIT_DEFAULTS.platform)
+    p.add_argument("--platform-xml", help="custom cppcheck platform XML")
+    p.add_argument("--rule-texts", default=INIT_DEFAULTS.rule_texts)
+    p.add_argument("--define", action="append", default=[], metavar="D")
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
     out: Path = args.output
     try:
-        if args.db:
-            db_source, db_path = args.db, args.db_path
-        elif args.db_path:
-            db_source, db_path = "existing", args.db_path
-        else:
-            db_source, db_path = detect_db_source(out.parent)
-    except ScaffoldDbDetectionError as exc:
-        choices = "--db meson, --db cmake, or --db existing"
-        _err.print(f"[red]init error:[/] {exc}; pass {choices}.")
+        db_source, db_path = (
+            (args.db, args.db_path)
+            if args.db
+            else ("existing", args.db_path)
+            if args.db_path
+            else scaffold.detect_db_source(out.parent)
+        )
+    except scaffold.ScaffoldDbDetectionError as exc:
+        _err.print(
+            f"[red]init error:[/] {exc}; pass --db meson, --db cmake, or --db existing."
+        )
         return 2
 
-    params = ScaffoldParams(
+    params = scaffold.ScaffoldParams(
         scope=args.scope or list(INIT_DEFAULTS.scope),
         exclude=args.exclude or list(INIT_DEFAULTS.exclude),
         db_source=db_source,
@@ -358,14 +100,14 @@ def _cmd_init(args: argparse.Namespace) -> int:
         scaffolded=args.scaffold,
     )
     try:
-        written = write_project_files(out, params, force=args.force)
-    except ScaffoldConflict as exc:
+        written = scaffold.write_project_files(out, params, force=args.force)
+    except scaffold.ScaffoldConflict as exc:
         _err.print("[red]refusing to overwrite existing init target(s):[/]")
         for path in exc.paths:
             _err.print(f"  [red]-[/] {path}")
         _err.print("Pass [bold]--force[/] to replace every listed target.")
         return 2
-    except ScaffoldPathError as exc:
+    except scaffold.ScaffoldPathError as exc:
         _err.print("[red]cannot create regular init file(s) at these paths:[/]")
         for path in exc.paths:
             _err.print(f"  [red]-[/] {path}")
