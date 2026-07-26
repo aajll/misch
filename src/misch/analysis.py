@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Protocol
 
 from .config import Config
-from .db import ScopeCoverage
+from .db import DbError, ScopeCoverage
+from .engine.cppcheck import EngineError
+from .report.headlines import load_headlines
 from .report.model import Finding, Report
 
 # ---------------------------------------------------------------------------
@@ -186,4 +188,116 @@ def analyse(
     Returns:
         An ``AnalysisSuccess`` or an ``AnalysisFailure`` variant.
     """
-    ...
+    notices: list[Notice] = []
+
+    # Load rule headlines; emit notice if absent rather than printing to stderr.
+    rules: dict[str, RuleInfo] = {}
+    if cfg.rule_texts is None:
+        notices.append(
+            Notice(
+                key="rule_texts_absent",
+                message=(
+                    "no MISRA rule-texts found (set $MISRA_RULE_TEXTS or "
+                    "[rules].texts). Findings will be tagged category: unknown."
+                ),
+            )
+        )
+    else:
+        loaded = load_headlines(cfg.rule_texts)
+        # Map headline RuleInfo to our local shape (category is StrEnum -> str).
+        rules = {
+            k: RuleInfo(category=str(v.category), headline=v.headline)
+            for k, v in loaded.items()
+        }
+
+    # Resolve the compile database.
+    try:
+        db_path = db.resolve(cfg)
+    except DbError as exc:
+        return DbFailure(message=str(exc))
+
+    # Classify scope: every DB file must be explicitly attributed.
+    coverage = db.classify_files(cfg, db_path)
+    if not coverage.ok():
+        return ScopeFailure(
+            unattributed=list(coverage.unattributed),
+            message=(
+                f"{len(coverage.unattributed)} file(s) match neither "
+                "[project].scope nor [project].exclude."
+            ),
+        )
+
+    # Run the static-analysis engine.
+    try:
+        findings = engine.run(cfg, db_path, rules, inline_suppr=inline_suppr)
+    except EngineError as exc:
+        return EngineFailure(message=str(exc))
+
+    # Post-filter: only report in-scope locations; unattributed is hard error.
+    findings, unattributed = db.partition_findings(cfg, findings)
+    if unattributed:
+        unattributed_files = [f.file for f in unattributed]
+        return ScopeFailure(
+            unattributed=unattributed_files,
+            message=(
+                f"{len(unattributed)} finding(s) at location(s) matching neither "
+                "[project].scope nor [project].exclude."
+            ),
+        )
+
+    report = Report(
+        findings=findings,
+        analysed_files=coverage.analysed,
+        excluded_files=coverage.excluded,
+    )
+    return AnalysisSuccess(report=report, coverage=coverage, notices=notices)
+
+
+# ---------------------------------------------------------------------------
+# Concrete adapter implementations — wire real modules for production use
+# ---------------------------------------------------------------------------
+
+
+class DbAdapterImpl:
+    """Delegates to the ``db`` module functions."""
+
+    def resolve(self, cfg: Config) -> Path:
+        from . import db as _dbmod  # noqa: F811
+
+        return _dbmod.resolve_compile_db(cfg)
+
+    def classify_files(self, cfg: Config, db_path: Path) -> ScopeCoverage:
+        from . import db as _dbmod
+
+        return _dbmod.classify_files(cfg, db_path)
+
+    def partition_findings(
+        self, cfg: Config, findings: list[Finding]
+    ) -> tuple[list[Finding], list[Finding]]:
+        from . import db as _dbmod
+
+        return _dbmod.partition_findings(cfg, findings)
+
+
+class EngineAdapterImpl:
+    """Delegates to the ``engine.cppcheck`` module."""
+
+    def run(
+        self,
+        cfg: Config,
+        db_path: Path,
+        rules: dict[str, RuleInfo],
+        *,
+        inline_suppr: bool = True,
+    ) -> list[Finding]:
+        from .engine import cppcheck as _cpp
+
+        # Map local RuleInfo back to headline RuleInfo for the engine.
+        from .report.headlines import RuleInfo as HeadlineRuleInfo
+        from .report.model import Category
+
+        hrules = {
+            k: HeadlineRuleInfo(category=Category(v.category), headline=v.headline)
+            for k, v in rules.items()
+        }
+        return _cpp.run(cfg, db_path, hrules, inline_suppr=inline_suppr)
