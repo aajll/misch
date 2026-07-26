@@ -98,3 +98,123 @@ def profile_value_description(field: tuple[str, str], *, append: bool) -> str:
     if field in _PROFILE_LIST_FIELDS:
         return "a string or list of strings" if append else "a list of strings"
     return "a string"
+
+
+class ProfileError(ValueError):
+    """Raised when a profile contains invalid keys, values, or merge conflicts."""
+
+
+def _profile_error(profile_name: str, path: str, message: str) -> None:
+    raise ProfileError(f"profile {profile_name!r}: {path} {message}")
+
+
+def validate_profile(profile: dict, profile_name: str) -> None:
+    """Reject profile keys and values outside the supported overlay schema.
+
+    Raises ``ProfileError`` for unknown sections, unsupported fields,
+    invalid value types, or append prefixes on non-list targets.
+    """
+    for section, values in profile.items():
+        if not profile_section_supported(section):
+            path = (
+                f"{section}.{next(iter(values))}"
+                if isinstance(values, dict) and values
+                else section
+            )
+            _profile_error(profile_name, path, "is not a supported setting")
+        if section == "platform" and isinstance(values, str):
+            continue  # Legacy scalar platform form remains supported.
+        if not isinstance(values, dict):
+            _profile_error(profile_name, section, "must be a TOML table")
+
+        for key, value in values.items():
+            _, is_append = strip_append(key)
+            path = f"{section}.{key}"
+            field = profile_field(section, key)
+            if field is None:
+                _profile_error(profile_name, path, "is not a supported setting")
+            if is_append and not profile_allows_append(field):
+                _profile_error(profile_name, path, "can only target a list setting")
+            if not valid_profile_value(field, value, append=is_append):
+                expected = profile_value_description(field, append=is_append)
+                _profile_error(
+                    profile_name, path, f"must be {expected}"
+                )
+
+
+def merge(base_data: dict, profile: dict, *, profile_name: str) -> None:
+    """Merge *profile* into *base_data* in-place.
+
+    Supports an ``append_`` prefix on leaf keys to extend lists rather than
+    replace them.  For example::
+
+        [profiles.aarch64]
+        platform.xml = "analysis/aarch64_platform.xml"
+        toolchain.append_defines = ["ARCH_ARM64"]
+        project.append_exclude = ["generated/"]
+
+    Scalar values are replaced normally, ``toolchain.defines`` and
+    ``project.exclude`` are appended to.  The top-level ``platform`` table is
+    replaced wholesale rather than deep-merged, because ``preset`` and ``xml``
+    are mutually exclusive: a profile's platform fully supersedes the base's.
+
+    After merging, validates that the resulting platform section does not have
+    both ``preset`` and ``xml`` set simultaneously.
+
+    Raises ``ProfileError`` for unsupported append targets, non-list keys,
+    or conflicting platform selectors after merge.
+    """
+    prefix = f"profile {profile_name!r}: "
+    _deep_merge(base_data, profile, profile_name=profile_name)
+
+    # Validate merged platform: preset and xml must not coexist.
+    merged_platform = base_data.get("platform", {})
+    if isinstance(merged_platform, dict):
+        if "xml" in merged_platform and "preset" in merged_platform:
+            raise ProfileError(
+                f"{prefix}platform: set either 'preset' or 'xml', not both"
+            )
+
+
+def _deep_merge(
+    target: dict,
+    patch: dict,
+    *,
+    profile_name: str | None = None,
+    path: tuple[str, ...] = (),
+) -> None:
+    """Recursively merge *patch* into *target* in-place.
+
+    Internal helper for :func:`merge`.
+    """
+    prefix = f"profile {profile_name!r}: " if profile_name else ""
+    for k, v in patch.items():
+        current_path = (*path, k)
+        if path == () and k == "platform":
+            target[k] = v  # xml XOR preset: replace, never merge two selectors.
+            continue
+        real_key, is_append = strip_append(k)
+        if is_append:
+            target_path = (*path, real_key)
+            if not profile_allows_append(target_path):
+                raise ProfileError(
+                    f"{prefix}{'.'.join(current_path)}: unsupported list target"
+                )
+            if real_key not in target:
+                target[real_key] = []
+            if not isinstance(target[real_key], list):
+                raise ProfileError(
+                    f"{prefix}{'.'.join(current_path)}: key {real_key!r} is not a list"
+                )
+            if isinstance(v, list):
+                target[real_key].extend(v)
+            else:
+                target[real_key].append(v)
+        elif isinstance(v, dict):
+            if k not in target or not isinstance(target[k], dict):
+                target[k] = {}
+            _deep_merge(
+                target[k], v, profile_name=profile_name, path=current_path
+            )
+        else:
+            target[k] = v

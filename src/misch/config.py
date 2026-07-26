@@ -14,17 +14,14 @@ from pathlib import Path
 from .config_schema import (
     RUNTIME_DEFAULTS,
     VALID_DB_SOURCES,
-    profile_allows_append,
-    profile_field,
-    profile_section_supported,
-    profile_value_description,
-    strip_append,
-    valid_profile_value,
+    ProfileError,
+    merge,
+    validate_profile,
 )
 
 
 class ConfigError(Exception):
-    pass
+    """Raised when configuration is invalid or missing."""
 
 
 @dataclass(slots=True)
@@ -68,8 +65,14 @@ def load(config_path: Path, profile_name: str | None = None) -> Config:
         profile = profiles[profile_name]
         if not isinstance(profile, dict):
             raise ConfigError(f"profile {profile_name!r} must be a TOML table")
-        _validate_profile(profile, profile_name)
-        _deep_merge(data, profile, profile_name=profile_name)
+        try:
+            validate_profile(profile, profile_name)
+        except ProfileError as e:
+            raise ConfigError(str(e)) from e
+        try:
+            merge(data, profile, profile_name=profile_name)
+        except ProfileError as e:
+            raise ConfigError(str(e)) from e
 
     project = data.get("project", {})
     db = data.get("db", {})
@@ -87,8 +90,6 @@ def load(config_path: Path, profile_name: str | None = None) -> Config:
         )
 
     # Handle platform as a dict or a string for backward compatibility.
-    # preset and xml are mutually exclusive selectors; reject a config that
-    # sets both rather than silently preferring one.
     if isinstance(platform, dict):
         if "xml" in platform and "preset" in platform:
             raise ConfigError("platform: set either 'preset' or 'xml', not both")
@@ -116,95 +117,6 @@ def load(config_path: Path, profile_name: str | None = None) -> Config:
         baseline_path=_resolve_path(baseline.get("path"), root, "misra-baseline.json"),
         suppressions_path=_optional_path(deviations.get("suppressions"), root),
     )
-
-
-def _validate_profile(profile: dict, profile_name: str) -> None:
-    """Reject profile keys and values outside the supported overlay schema."""
-    for section, values in profile.items():
-        if not profile_section_supported(section):
-            path = (
-                f"{section}.{next(iter(values))}"
-                if isinstance(values, dict) and values
-                else section
-            )
-            _profile_error(profile_name, path, "is not a supported setting")
-        if section == "platform" and isinstance(values, str):
-            continue  # Legacy scalar platform form remains supported.
-        if not isinstance(values, dict):
-            _profile_error(profile_name, section, "must be a TOML table")
-
-        for key, value in values.items():
-            _, is_append = strip_append(key)
-            path = f"{section}.{key}"
-            field = profile_field(section, key)
-            if field is None:
-                _profile_error(profile_name, path, "is not a supported setting")
-            if is_append and not profile_allows_append(field):
-                _profile_error(profile_name, path, "can only target a list setting")
-            if not valid_profile_value(field, value, append=is_append):
-                expected = profile_value_description(field, append=is_append)
-                _profile_error(profile_name, path, f"must be {expected}")
-
-
-def _profile_error(profile_name: str, path: str, message: str) -> None:
-    raise ConfigError(f"profile {profile_name!r}: {path} {message}")
-
-
-def _deep_merge(
-    target: dict,
-    patch: dict,
-    *,
-    profile_name: str | None = None,
-    path: tuple[str, ...] = (),
-) -> None:
-    """Recursively merge *patch* into *target* in-place.
-
-    Supports an ``append_`` prefix on leaf keys to extend lists rather than
-    replace them.  For example, in a profile:
-
-        [profiles.aarch64]
-        platform.xml = "analysis/aarch64_platform.xml"
-        toolchain.append_defines = ["ARCH_ARM64"]
-        project.append_exclude = ["generated/"]
-
-    Scalar values are replaced normally and ``toolchain.defines`` /
-    ``project.exclude`` are appended to.  The top-level ``platform`` table is
-    replaced wholesale rather than deep-merged, because ``preset`` and ``xml``
-    are mutually exclusive: a profile's platform fully supersedes the base's.
-
-    ``append_<key>`` is permitted only for documented list settings. It raises
-    ``ConfigError`` for a non-list or unsupported target. If a supported target
-    is missing from the base, it is auto-initialised as an empty list.
-    """
-    prefix = f"profile {profile_name!r}: " if profile_name else ""
-    for k, v in patch.items():
-        current_path = (*path, k)
-        if path == () and k == "platform":
-            target[k] = v  # xml XOR preset: replace, never merge two selectors.
-            continue
-        real_key, is_append = strip_append(k)
-        if is_append:
-            target_path = (*path, real_key)
-            if not profile_allows_append(target_path):
-                raise ConfigError(
-                    f"{prefix}{'.'.join(current_path)}: unsupported list target"
-                )
-            if real_key not in target:
-                target[real_key] = []
-            if not isinstance(target[real_key], list):
-                raise ConfigError(
-                    f"{prefix}{'.'.join(current_path)}: key {real_key!r} is not a list"
-                )
-            if isinstance(v, list):
-                target[real_key].extend(v)
-            else:
-                target[real_key].append(v)
-        elif isinstance(v, dict):
-            if k not in target or not isinstance(target[k], dict):
-                target[k] = {}
-            _deep_merge(target[k], v, profile_name=profile_name, path=current_path)
-        else:
-            target[k] = v
 
 
 def _optional_path(configured: str | None, root: Path) -> Path | None:
