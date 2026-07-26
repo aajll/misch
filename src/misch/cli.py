@@ -341,9 +341,6 @@ def _cmd_deviations(args: argparse.Namespace) -> int:
     return 0 if record.ok() else 1
 
 
-
-
-
 def _cmd_init(args: argparse.Namespace) -> int:
     out: Path = args.output
     try:

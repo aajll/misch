@@ -137,9 +137,7 @@ def validate_profile(profile: dict, profile_name: str) -> None:
                 _profile_error(profile_name, path, "can only target a list setting")
             if not valid_profile_value(field, value, append=is_append):
                 expected = profile_value_description(field, append=is_append)
-                _profile_error(
-                    profile_name, path, f"must be {expected}"
-                )
+                _profile_error(profile_name, path, f"must be {expected}")
 
 
 def merge(base_data: dict, profile: dict, *, profile_name: str) -> None:
@@ -213,8 +211,6 @@ def _deep_merge(
         elif isinstance(v, dict):
             if k not in target or not isinstance(target[k], dict):
                 target[k] = {}
-            _deep_merge(
-                target[k], v, profile_name=profile_name, path=current_path
-            )
+            _deep_merge(target[k], v, profile_name=profile_name, path=current_path)
         else:
             target[k] = v

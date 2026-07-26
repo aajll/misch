@@ -1302,9 +1302,7 @@ def test_schema_merge_append_on_non_list_raises():
 
     base = {"toolchain": {"defines": "not-a-list"}}
     profile = {"toolchain": {"append_defines": ["FOO"]}}
-    with pytest.raises(
-        ProfileError, match="key 'defines' is not a list"
-    ):
+    with pytest.raises(ProfileError, match="key 'defines' is not a list"):
         merge(base, profile, profile_name="test")
 
 
