@@ -12,7 +12,6 @@ from rich.console import Console
 from rich_argparse import RichHelpFormatter
 
 from . import __version__
-from . import db as dbmod
 from .analysis import (
     AnalysisSuccess,
     DbAdapterImpl,
@@ -26,8 +25,6 @@ from .analysis import (
 )
 from .config import ConfigError, load
 from .config_schema import INIT_DEFAULTS
-from .engine import cppcheck
-from .engine.cppcheck import EngineError
 from .report.baseline import diff as bl_diff
 from .report.baseline import load_baseline, write_baseline
 from .report.dev_render import render_markdown as render_dev_markdown
@@ -36,7 +33,6 @@ from .report.deviations import (
     harvest,
 )
 from .report.headlines import load_headlines
-from .report.model import Report
 from .report.renderers import render
 from .scaffold import (
     ScaffoldConflict,
@@ -172,75 +168,6 @@ def _add_init_parser(add_parser) -> None:
         help="extra -D define for cppcheck (repeatable)",
     )
     p.set_defaults(func=_cmd_init)
-
-
-class _AnalysisError(Exception):
-    """Carries the exit code for a failed analysis pipeline."""
-
-    def __init__(self, code: int):
-        self.code = code
-
-
-def _analyse(cfg, *, inline_suppr: bool = True) -> tuple[Report, dbmod.ScopeCoverage]:
-    """Shared pipeline: db -> scope-check -> engine -> in-scope Report.
-
-    Raises _AnalysisError(code) on any gate so callers just propagate the code.
-    With inline_suppr=False, cppcheck-suppress comments are ignored (used by the
-    deviation staleness check).
-    """
-    if cfg.rule_texts is None:
-        _err.print(
-            "[yellow]note:[/] no MISRA rule-texts found (set $MISRA_RULE_TEXTS "
-            "or \\[rules].texts). Findings will be tagged category: unknown. "
-            "See https://github.com/aajll/misch/blob/master/docs/rule-texts.md."
-        )
-    rules = load_headlines(cfg.rule_texts) if cfg.rule_texts else {}
-
-    try:
-        db_path = dbmod.resolve_compile_db(cfg)
-    except dbmod.DbError as exc:
-        _err.print(f"[red]compile-db error:[/] {exc}")
-        raise _AnalysisError(2) from None
-
-    coverage = dbmod.classify_files(cfg, db_path)
-    if not coverage.ok():
-        _err.print(
-            f"[red]scope error:[/] {len(coverage.unattributed)} file(s) match "
-            "neither \\[project].scope nor \\[project].exclude. Classify them "
-            "explicitly (audit boundary must be enumerated):"
-        )
-        for f in coverage.unattributed:
-            _err.print(f"  [red]?[/] {f}")
-        raise _AnalysisError(2)
-
-    try:
-        findings = cppcheck.run(cfg, db_path, rules, inline_suppr=inline_suppr)
-    except EngineError as exc:
-        _err.print(f"[red]engine error:[/] {exc}")
-        raise _AnalysisError(2) from None
-
-    # Post-filter is authoritative: only report in-scope, non-excluded
-    # locations. Findings at in-tree locations that match neither scope nor
-    # exclude (headers never appear in the compile DB, so classify_files
-    # cannot gate them) are a hard error, not a silent drop.
-    findings, unattributed = dbmod.partition_findings(cfg, findings)
-    if unattributed:
-        by_file = Counter(f.file for f in unattributed)
-        _err.print(
-            f"[red]scope error:[/] {len(unattributed)} finding(s) at "
-            "location(s) matching neither \\[project].scope nor "
-            "\\[project].exclude. Classify them explicitly "
-            "(audit boundary must be enumerated):"
-        )
-        for file, n in sorted(by_file.items()):
-            _err.print(f"  [red]?[/] {file} ({n})")
-        raise _AnalysisError(2)
-    report = Report(
-        findings=findings,
-        analysed_files=coverage.analysed,
-        excluded_files=coverage.excluded,
-    )
-    return report, coverage
 
 
 def _print_scope_error(failure: ScopeFailure) -> None:
@@ -381,11 +308,13 @@ def _cmd_deviations(args: argparse.Namespace) -> int:
     # Gather unsuppressed findings when stale check is requested.
     findings: list | None = None
     if args.check_stale:
-        try:
-            with _err.status("Running analysis..."):
-                report, _ = _analyse(cfg, inline_suppr=False)
-            findings = report.findings
-        except _AnalysisError:
+        with _err.status("Running analysis..."):
+            result = analysis_analyse(
+                cfg, DbAdapterImpl(), EngineAdapterImpl(), inline_suppr=False
+            )
+        if isinstance(result, AnalysisSuccess):
+            findings = result.report.findings
+        else:
             _err.print("[yellow]note:[/] staleness check skipped (analysis failed).")
 
     record = harvest(cfg, known, findings=findings)
