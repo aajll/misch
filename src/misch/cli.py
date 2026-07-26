@@ -13,6 +13,17 @@ from rich_argparse import RichHelpFormatter
 
 from . import __version__
 from . import db as dbmod
+from .analysis import (
+    AnalysisSuccess,
+    DbAdapterImpl,
+    DbFailure,
+    EngineAdapterImpl,
+    EngineFailure,
+    ScopeFailure,
+)
+from .analysis import (
+    analyse as analysis_analyse,
+)
 from .config import ConfigError, load
 from .config_schema import INIT_DEFAULTS
 from .engine import cppcheck
@@ -232,6 +243,30 @@ def _analyse(cfg, *, inline_suppr: bool = True) -> tuple[Report, dbmod.ScopeCove
     return report, coverage
 
 
+def _print_scope_error(failure: ScopeFailure) -> None:
+    """Print a scope error matching the legacy _analyse() format."""
+    if "finding(s)" in failure.message:
+        # Partition-findings path: group by file with counts.
+        by_file = Counter(failure.unattributed)
+        _err.print(
+            f"[red]scope error:[/] {len(failure.unattributed)} finding(s) at "
+            "location(s) matching neither \\[project].scope nor "
+            "\\[project].exclude. Classify them explicitly "
+            "(audit boundary must be enumerated):"
+        )
+        for file, n in sorted(by_file.items()):
+            _err.print(f"  [red]?[/] {file} ({n})")
+    else:
+        # Classify-files path: list unattributed paths.
+        _err.print(
+            f"[red]scope error:[/] {len(failure.unattributed)} file(s) match "
+            "neither \\[project].scope nor \\[project].exclude. Classify them "
+            "explicitly (audit boundary must be enumerated):"
+        )
+        for f in failure.unattributed:
+            _err.print(f"  [red]?[/] {f}")
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     try:
         cfg = load(args.config, profile_name=args.profile)
@@ -239,11 +274,25 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _err.print(f"[red]config error:[/] {exc}")
         return 2
 
-    try:
-        with _err.status("Running analysis..."):
-            report, coverage = _analyse(cfg)
-    except _AnalysisError as exc:
-        return exc.code
+    with _err.status("Running analysis..."):
+        result = analysis_analyse(
+            cfg, DbAdapterImpl(), EngineAdapterImpl(), inline_suppr=True
+        )
+    if isinstance(result, AnalysisSuccess):
+        report = result.report
+        coverage = result.coverage
+    elif isinstance(result, DbFailure):
+        _err.print(f"[red]compile-db error:[/] {result.message}")
+        return 2
+    elif isinstance(result, ScopeFailure):
+        _print_scope_error(result)
+        return 2
+    elif isinstance(result, EngineFailure):
+        _err.print(f"[red]engine error:[/] {result.message}")
+        return 2
+    else:
+        _err.print("[red]unexpected analysis result[/]")
+        return 2
 
     # Ratchet mode: compute baseline diff before rendering.
     diff: object | None = None
@@ -292,11 +341,24 @@ def _cmd_baseline(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         _err.print(f"[red]config error:[/] {exc}")
         return 2
-    try:
-        with _err.status("Running analysis..."):
-            report, _ = _analyse(cfg)
-    except _AnalysisError as exc:
-        return exc.code
+    with _err.status("Running analysis..."):
+        result = analysis_analyse(
+            cfg, DbAdapterImpl(), EngineAdapterImpl(), inline_suppr=True
+        )
+    if isinstance(result, AnalysisSuccess):
+        report = result.report
+    elif isinstance(result, DbFailure):
+        _err.print(f"[red]compile-db error:[/] {result.message}")
+        return 2
+    elif isinstance(result, ScopeFailure):
+        _print_scope_error(result)
+        return 2
+    elif isinstance(result, EngineFailure):
+        _err.print(f"[red]engine error:[/] {result.message}")
+        return 2
+    else:
+        _err.print("[red]unexpected analysis result[/]")
+        return 2
 
     path = args.baseline_file or cfg.baseline_path
     n = write_baseline(path, report.misra())
