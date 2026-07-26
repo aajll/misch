@@ -6,13 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-26
+
+### Changed
+
+- Relicensed the project under Apache-2.0.
+
 ### Improved
 
-- Made `-v`/`--verbose` on `misch run` print cppcheck's own (non-MISRA) diagnostics as a per-location listing, colour-coded by severity, including when there are no MISRA findings at all. Previously these diagnostics only surfaced as a count pointing at the JSON output; the non-verbose note now points at `-v`/`--verbose` instead.
-- Moved the per-rule MISRA table below the verbose per-location listings, so the table and the closing summary sit together at the end of the output instead of scrolling away on large verbose reports.
-- Consolidated the project-scope policy into one module. Glob precedence, external-location detection, and in-scope source selection were spread across compile-database classification, finding partitioning, and the deviation source walk, each carrying its own copy of the rules. All three now ask the same implementation, so a change to what `scope` or `exclude` means takes effect everywhere at once and is verified in one place. Scope behaviour is unchanged.
-- Gave the finding parser and the deviation harvester the project-relative path normalization the scope rules use, replacing two private copies of it. The code that produces a finding's path and the code that classifies it now share one definition of what a project-relative path is.
-- Corrected the architecture documentation's account of the finding boundary. It stated that findings in external system or toolchain headers are always omitted, but a configuration with no `scope` entries draws no inclusion boundary and so keeps every non-excluded finding.
+- Added verbose per-location cppcheck diagnostics and moved the MISRA table below them.
+- Centralized project-scope policy and path normalization without changing scope behavior.
+- Corrected documentation for unscoped external findings.
 
 ## [0.3.0] - 2026-07-22
 
