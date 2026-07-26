@@ -3,7 +3,7 @@
 [![CI](https://github.com/aajll/misch/actions/workflows/ci.yml/badge.svg)](https://github.com/aajll/misch/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/misch)](https://pypi.org/project/misch/)
 [![Python](https://img.shields.io/pypi/pyversions/misch)](https://pypi.org/project/misch/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/aajll/misch/blob/master/LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/aajll/misch/blob/master/LICENSE)
 
 **Point `misch` at a C project and ratchet it toward MISRA C:2023.** It is a configuration-driven harness around [cppcheck](https://cppcheck.sourceforge.io/) and its `misra.py` addon. A compilation database describes the real build; `misra.toml` describes the analysis boundary and project policy.
 
@@ -123,4 +123,4 @@ The configuration points at the deviations template and the future baseline path
 
 ## License
 
-`misch` is distributed under the [MIT License](https://github.com/aajll/misch/blob/master/LICENSE). It contains no MISRA guideline text; users must source and handle any rule-text file according to their own licence.
+`misch` is distributed under the [Apache License 2.0](https://github.com/aajll/misch/blob/master/LICENSE). It contains no MISRA guideline text; users must source and handle any rule-text file according to their own licence.
