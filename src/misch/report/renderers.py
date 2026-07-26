@@ -61,7 +61,7 @@ def _render_cppcheck_verbose(console: Console, findings: list[Finding]) -> None:
         console.print(line)
 
 
-def render_terminal(
+def _render_terminal(
     report: Report, coverage: ScopeCoverage, *, verbose: bool = False
 ) -> None:
     # emoji=False so a `:100:` line number is not read as an emoji shortcode;
@@ -147,7 +147,7 @@ def _maybe_cppcheck_note(console: Console, report: Report, *, verbose: bool) -> 
         )
 
 
-def render_baseline_summary(d: BaselineDiff, path: Path) -> None:
+def _render_baseline_summary(d: BaselineDiff, path: Path) -> None:
     console = Console(stderr=False, emoji=False, highlight=False)
     console.rule("[bold]Baseline (ratchet)")
     console.print(
@@ -170,7 +170,7 @@ def render_baseline_summary(d: BaselineDiff, path: Path) -> None:
         console.print("[green]No new findings.[/] [green]OK[/]")
 
 
-def render_json(report: Report, coverage: ScopeCoverage, path: Path) -> None:
+def _render_json(report: Report, coverage: ScopeCoverage, path: Path) -> None:
     doc = {
         "schema": "misch/findings@1",
         "summary": {
@@ -208,7 +208,7 @@ _SARIF_LEVEL = {
 }
 
 
-def render_sarif(report: Report, path: Path) -> None:
+def _render_sarif(report: Report, path: Path) -> None:
     """Emit SARIF 2.1.0 for GitHub code scanning / IDE annotations."""
     findings = report.sorted()
 
@@ -261,3 +261,54 @@ def render_sarif(report: Report, path: Path) -> None:
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, indent=2) + "\n")
+
+
+def render(
+    report: Report,
+    coverage: ScopeCoverage,
+    outputs: list[dict],
+    *,
+    verbose: bool = False,
+    diff: BaselineDiff | None = None,
+) -> None:
+    """Unified entry point for all output formats.
+
+    Dispatches to internal renderers based on the *outputs* config list.
+    Each dict must have a ``format`` key (str). File-based formats may also
+    carry a ``path`` key.
+
+    Parameters
+    ----------
+        report: The analysis results.
+        coverage: Scope coverage information.
+        outputs: List of output configs, e.g. ``[{"format": "terminal"}]``.
+        verbose: Render detailed per-location listings (terminal only).
+        diff: Baseline diff for the ``baseline`` format (ratchet mode).
+    """
+    console = Console(stderr=False, emoji=False, highlight=False)
+
+    for out in outputs:
+        fmt = out["format"]
+        if fmt == "terminal":
+            _render_terminal(report, coverage, verbose=verbose)
+        elif fmt == "json":
+            path = Path(out.get("path", "misra.json"))
+            _render_json(report, coverage, path)
+            console.print(f"[dim]wrote JSON findings to {escape(str(path))}[/]")
+        elif fmt == "sarif":
+            path = Path(out.get("path", "misra.sarif"))
+            _render_sarif(report, path)
+            console.print(f"[dim]wrote SARIF to {escape(str(path))}[/]")
+        elif fmt == "baseline":
+            if diff is None:
+                console.print(
+                    "[yellow]note:[/] baseline format requested but no diff available"
+                )
+                continue
+            path = Path(out.get("path", "misra-baseline.json"))
+            _render_baseline_summary(diff, path)
+        else:
+            console.print(
+                f"[yellow]note:[/] output format {fmt!r} unsupported "
+                "(terminal/json/sarif/baseline)"
+            )

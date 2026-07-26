@@ -26,12 +26,7 @@ from .report.deviations import (
 )
 from .report.headlines import load_headlines
 from .report.model import Report
-from .report.renderers import (
-    render_baseline_summary,
-    render_json,
-    render_sarif,
-    render_terminal,
-)
+from .report.renderers import render
 from .scaffold import (
     ScaffoldConflict,
     ScaffoldDbDetectionError,
@@ -250,20 +245,44 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except _AnalysisError as exc:
         return exc.code
 
-    _emit(cfg, report, coverage, args)
+    # Ratchet mode: compute baseline diff before rendering.
+    diff: object | None = None
+    if args.baseline:
+        baseline = load_baseline(cfg.baseline_path)
+        if not baseline:
+            _err.print(
+                f"[yellow]note:[/] --baseline set but {cfg.baseline_path.name} is "
+                "empty/absent. Run [bold]misch baseline[/] to create it."
+            )
+        d = bl_diff(report.misra(), baseline)
+        diff = d
+
+    if args.format:
+        # CLI format override: apply --output to file-based formats.
+        output_path = args.output
+        outputs = []
+        for fmt in args.format:
+            entry: dict = {"format": fmt}
+            if fmt in ("json", "sarif") and output_path:
+                entry["path"] = str(output_path)
+            elif fmt in ("json", "sarif"):
+                default_name = "misra.json" if fmt == "json" else "misra.sarif"
+                entry["path"] = str(cfg.build_dir / default_name)
+            outputs.append(entry)
+    else:
+        outputs = list(cfg.outputs)
+
+    render(
+        report,
+        coverage,
+        outputs,
+        verbose=getattr(args, "verbose", False),
+        diff=diff,
+    )
 
     if not args.baseline:
         return 1 if report.misra() else 0
 
-    # Ratchet mode: report everything but fail only on findings not in baseline.
-    baseline = load_baseline(cfg.baseline_path)
-    if not baseline:
-        _err.print(
-            f"[yellow]note:[/] --baseline set but {cfg.baseline_path.name} is "
-            "empty/absent. Run [bold]misch baseline[/] to create it."
-        )
-    d = bl_diff(report.misra(), baseline)
-    render_baseline_summary(d, cfg.baseline_path)
     return 1 if d.new else 0
 
 
@@ -322,25 +341,7 @@ def _cmd_deviations(args: argparse.Namespace) -> int:
     return 0 if record.ok() else 1
 
 
-def _emit(cfg, report: Report, coverage, args: argparse.Namespace) -> None:
-    outputs = [{"format": f} for f in args.format] if args.format else list(cfg.outputs)
-    for out in outputs:
-        fmt = out["format"]
-        if fmt == "terminal":
-            render_terminal(report, coverage, verbose=getattr(args, "verbose", False))
-        elif fmt == "json":
-            path = args.output or Path(out.get("path", cfg.build_dir / "misra.json"))
-            render_json(report, coverage, path)
-            _err.print(f"[dim]wrote JSON findings to {path}[/]")
-        elif fmt == "sarif":
-            path = args.output or Path(out.get("path", cfg.build_dir / "misra.sarif"))
-            render_sarif(report, path)
-            _err.print(f"[dim]wrote SARIF to {path}[/]")
-        else:
-            _err.print(
-                f"[yellow]note:[/] output format {fmt!r} unsupported "
-                "(terminal/json/sarif)"
-            )
+
 
 
 def _cmd_init(args: argparse.Namespace) -> int:

@@ -15,7 +15,7 @@ from misch.report.dev_render import render_markdown
 from misch.report.deviations import Deviation, DeviationRecord
 from misch.report.headlines import load_headlines
 from misch.report.model import Category, Finding, is_misra_id
-from misch.report.renderers import render_baseline_summary
+from misch.report.renderers import _render_baseline_summary as render_baseline_summary
 
 
 def _finding(**kw) -> Finding:
@@ -155,7 +155,7 @@ def test_render_sarif_structure(tmp_path: Path):
     import json
 
     from misch.report.model import Report
-    from misch.report.renderers import render_sarif
+    from misch.report.renderers import _render_sarif as render_sarif
 
     report = Report(
         findings=[
@@ -213,7 +213,7 @@ def _report_with_line_100():
 
 def test_terminal_does_not_emoji_substitute_line_numbers(capsys):
     from misch.db import ScopeCoverage
-    from misch.report.renderers import render_terminal
+    from misch.report.renderers import _render_terminal as render_terminal
 
     cov = ScopeCoverage(analysed=["a.c"], excluded=[], unattributed=[])
     render_terminal(_report_with_line_100(), cov, verbose=True)
@@ -224,7 +224,7 @@ def test_terminal_does_not_emoji_substitute_line_numbers(capsys):
 
 def test_terminal_verbose_gates_locations(capsys):
     from misch.db import ScopeCoverage
-    from misch.report.renderers import render_terminal
+    from misch.report.renderers import _render_terminal as render_terminal
 
     cov = ScopeCoverage(analysed=["a.c"], excluded=[], unattributed=[])
     report = _report_with_line_100()
@@ -244,7 +244,7 @@ def test_terminal_verbose_shows_cppcheck_diagnostics(capsys):
     non-verbose hides them behind a note prompting -v."""
     from misch.db import ScopeCoverage
     from misch.report.model import Report, Source
-    from misch.report.renderers import render_terminal
+    from misch.report.renderers import _render_terminal as render_terminal
 
     report = Report(
         findings=[
@@ -298,7 +298,7 @@ def test_terminal_cppcheck_only_report_respects_verbose_mode(capsys):
     """Cppcheck-only reports retain MISRA status while verbose shows details."""
     from misch.db import ScopeCoverage
     from misch.report.model import Report, Source
-    from misch.report.renderers import render_terminal
+    from misch.report.renderers import _render_terminal as render_terminal
 
     report = Report(
         findings=[
